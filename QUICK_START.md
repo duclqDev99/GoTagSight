@@ -3,9 +3,16 @@
 ## 🚀 Cài đặt nhanh
 
 ### Windows
+**Phương pháp 1: Setup tự động (khuyến nghị)**
 1. Double-click `setup-windows.bat`
 2. Làm theo hướng dẫn
 3. Chạy `npm run dev`
+
+**Phương pháp 2: Cài đặt Chocolatey trước**
+1. Right-click PowerShell → "Run as Administrator"
+2. Chạy: `.\install-chocolatey.ps1`
+3. Sau đó chạy: `setup-windows.bat`
+4. Chạy `npm run dev`
 
 ### macOS
 1. Mở Terminal

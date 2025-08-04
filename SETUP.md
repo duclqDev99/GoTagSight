@@ -61,26 +61,21 @@ node --version
 npm --version
 ```
 
-#### Bước 2: Cài đặt MySQL
+#### Bước 2: Cài đặt MySQL Client (Tùy chọn)
+
+**Lưu ý:** Bạn sẽ kết nối đến database production có sẵn, không cần cài đặt MySQL Server local.
 
 **Windows:**
-1. Tải MySQL Server từ https://dev.mysql.com/downloads/mysql/
-2. Chạy installer và làm theo hướng dẫn
-3. Ghi nhớ username và password root
-4. Khởi động MySQL Service
-5. Thêm MySQL vào PATH
+1. Tải MySQL Client từ https://dev.mysql.com/downloads/mysql/
+2. Chỉ cài đặt MySQL Client (không cần Server)
+3. Thêm MySQL vào PATH
 
 **macOS:**
-1. Sử dụng Homebrew:
 ```bash
-brew install mysql
-brew services start mysql
+brew install mysql-client
 ```
 
-2. Thiết lập password root:
-```bash
-mysql_secure_installation
-```
+**Hoặc bỏ qua bước này** - ứng dụng sẽ kết nối trực tiếp đến production database.
 
 #### Bước 3: Cài đặt Git (Tùy chọn)
 
@@ -133,11 +128,18 @@ npm run build:main
 
 ### Bước 4: Cấu hình database
 
-1. Tạo database và bảng:
-```sql
-CREATE DATABASE production;
-USE production;
+**Lưu ý:** Bạn sẽ kết nối đến database production có sẵn.
 
+1. Đảm bảo bạn có thông tin kết nối production database:
+- **Host**: IP hoặc domain của production database
+- **Port**: 3306 (mặc định) hoặc port tùy chỉnh
+- **User**: Username có quyền truy cập database
+- **Password**: Password của user
+- **Database**: Tên database production
+- **Table**: `order_details` (hoặc tên bảng tương ứng)
+
+2. Cấu trúc bảng cần có:
+```sql
 CREATE TABLE order_details (
     id INT AUTO_INCREMENT PRIMARY KEY,
     task_code VARCHAR(255),
@@ -168,18 +170,12 @@ CREATE TABLE order_details (
 );
 ```
 
-2. Chạy script setup config:
+3. Chạy script setup config:
 ```bash
 npm run setup
 ```
 
-3. Nhập thông tin database:
-- Host: localhost hoặc 127.0.0.1
-- Port: 3306
-- User: root
-- Password: [password của bạn]
-- Database: production
-- Table: order_details
+4. Nhập thông tin database production khi được hỏi.
 
 ### Bước 5: Cấu hình đường dẫn ảnh
 

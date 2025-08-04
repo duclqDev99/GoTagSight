@@ -61,20 +61,13 @@ fi
 
 echo ""
 
-echo "Checking MySQL installation..."
+echo "Checking MySQL client (optional)..."
 if ! command -v mysql &> /dev/null; then
-    echo "WARNING: MySQL is not installed!"
-    echo "Please install MySQL using one of these methods:"
-    echo "1. Homebrew: brew install mysql && brew services start mysql"
-    echo "2. Download from https://dev.mysql.com/downloads/mysql/"
-    echo ""
-    read -p "Do you want to continue without MySQL? (y/n): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
-    fi
+    echo "MySQL client is not installed locally."
+    echo "This is OK - you will connect to production database."
+    echo "If you need MySQL client for testing, you can install it later."
 else
-    echo "MySQL is installed."
+    echo "MySQL client is available locally."
 fi
 
 echo ""
