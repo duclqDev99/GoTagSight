@@ -11,7 +11,9 @@
         "build:main": "tsc -p tsconfig.main.json",
         "build:renderer": "vite build",
         "dist": "electron-builder",
-        "dist:win": "electron-builder --win",
+        "dist:win": "electron-builder --win --x64 --arm64",
+        "dist:win-x64": "electron-builder --win --x64",
+        "dist:win-arm64": "electron-builder --win --arm64",
         "dist:mac": "electron-builder --mac",
         "postinstall": "electron-builder install-app-deps",
         "setup": "node setup-config.js"
