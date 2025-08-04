@@ -21,7 +21,10 @@
 # Phương pháp 1: Setup tự động (khuyến nghị)
 setup-windows.bat
 
-# Phương pháp 2: Cài đặt Chocolatey trước
+# Phương pháp 2: Kiểm tra trước khi setup
+validate-setup.bat
+
+# Phương pháp 3: Cài đặt Chocolatey trước
 # 1. Right-click PowerShell → "Run as Administrator"
 # 2. Chạy: .\install-chocolatey.ps1
 # 3. Sau đó chạy: setup-windows.bat

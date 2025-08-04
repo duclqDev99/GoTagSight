@@ -29,7 +29,7 @@ if %errorlevel% neq 0 (
         echo 3. Restart this script
         echo.
         echo Or install Chocolatey first:
-        echo Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        echo Run: powershell -ExecutionPolicy Bypass -File "install-chocolatey.ps1"
         echo.
         pause
         exit /b 1
@@ -68,7 +68,7 @@ if %errorlevel% neq 0 (
     set /p install_choco="Do you want to install Chocolatey? (y/n): "
     if /i "%install_choco%"=="y" (
         echo Installing Chocolatey...
-        powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))"
+        powershell -ExecutionPolicy Bypass -File "install-chocolatey.ps1"
         if %errorlevel% neq 0 (
             echo WARNING: Failed to install Chocolatey!
             echo You may need to run PowerShell as Administrator.
