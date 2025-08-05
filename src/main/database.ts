@@ -104,14 +104,15 @@ export class DatabaseManager {
                     created_at,
                     updated_at
                 FROM ${this.config.tableName}
-                WHERE (task_code LIKE ? OR task_code_front LIKE ? OR task_code_back LIKE ?)
+                WHERE (task_code_front LIKE ? )
                 ORDER BY id DESC
             `
-            const [allRows] = await this.connection.execute(allOrdersQuery, [searchTerm, searchTerm, searchTerm])
+            const [allRows] = await this.connection.execute(allOrdersQuery, [searchTerm])
             const allOrders = allRows as OrderDetail[]
 
             // Filter for valid status
-            const validOrders = allOrders.filter(order => order.status_code_string === 'C1F1R1P1E1V0')
+            // const validOrders = allOrders.filter(order => order.status_code_string === 'C1F1R1P1E1V0')
+            const validOrders = allOrders;
 
             return {
                 orders: validOrders,

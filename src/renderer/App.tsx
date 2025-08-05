@@ -66,22 +66,54 @@ function App() {
     const [showSettings, setShowSettings] = useState(false)
     const [showBarTenderSettings, setShowBarTenderSettings] = useState(false)
     const [isScanning, setIsScanning] = useState(false)
+    const [isConfigValid, setIsConfigValid] = useState(false)
+    const [isLoadingConfig, setIsLoadingConfig] = useState(true)
     const [notifications, setNotifications] = useState<Array<{
         id: string
         message: string
         type: 'success' | 'error' | 'warning' | 'info'
     }>>([])
 
+    // Kiểm tra config có hợp lệ không
+    const validateConfig = (config: AppConfig): boolean => {
+        return !!(config.databaseConfig?.host &&
+            config.databaseConfig?.user &&
+            config.databaseConfig?.database &&
+            config.databaseConfig?.tableName)
+    }
+
     useEffect(() => {
-        if (window.electronAPI) {
-            window.electronAPI.getConfig().then((loadedConfig: AppConfig) => {
-                if (loadedConfig) {
-                    setConfig(loadedConfig)
+        const loadConfig = async () => {
+            try {
+                if (window.electronAPI) {
+                    const loadedConfig: AppConfig = await window.electronAPI.getConfig()
+                    if (loadedConfig) {
+                        setConfig(loadedConfig)
+                        const isValid = validateConfig(loadedConfig)
+                        setIsConfigValid(isValid)
+
+                        // Nếu config không hợp lệ, tự động mở Settings
+                        if (!isValid) {
+                            setShowSettings(true)
+                            addNotification('Database configuration required. Please configure your database settings.', 'warning')
+                        }
+                    } else {
+                        // Không có config, tự động mở Settings
+                        setShowSettings(true)
+                        addNotification('No database configuration found. Please configure your database settings.', 'warning')
+                    }
                 }
-            }).catch((error: Error) => {
+            } catch (error) {
                 console.error('Failed to load config:', error)
-            })
+                // Lỗi load config, tự động mở Settings
+                setShowSettings(true)
+                addNotification('Failed to load configuration. Please configure your database settings.', 'error')
+            } finally {
+                setIsLoadingConfig(false)
+            }
         }
+
+        loadConfig()
 
         // Load saved orders from localStorage
         const savedOrders = localStorage.getItem('scannedOrders')
@@ -237,127 +269,44 @@ function App() {
     const handleConfigChange = (newConfig: Partial<AppConfig>) => {
         const updatedConfig = { ...config, ...newConfig }
         setConfig(updatedConfig)
-        if (window.electronAPI) {
-            window.electronAPI.setConfig(updatedConfig)
+
+        // Kiểm tra config mới có hợp lệ không
+        const isValid = validateConfig(updatedConfig)
+        setIsConfigValid(isValid)
+
+        // Nếu config hợp lệ, đóng Settings
+        if (isValid && showSettings) {
+            setShowSettings(false)
+            addNotification('Database configuration saved successfully!', 'success')
         }
     }
 
     return (
         <div className="App">
-            <div className="app-header">
-                <h1 className="app-title">Scan Barcode & Manage Orders</h1>
-                <div className="header-controls">
-                    <div className="total-orders">Total orders: {totalOrders}</div>
-                    <button
-                        className="settings-btn"
-                        onClick={() => setShowSettings(!showSettings)}
-                    >
-                        ⚙️ Settings
-                    </button>
-                    <button
-                        className="settings-btn"
-                        onClick={() => setShowBarTenderSettings(!showBarTenderSettings)}
-                    >
-                        🏷️ BarTender
-                    </button>
-                </div>
-            </div>
-
-            <div className="scan-section">
-                <Scanner config={config} onOrderScanned={handleOrderScanned} isScanning={isScanning} />
-            </div>
-
-            <div className="main-content">
-                <div className="panel order-list-panel">
-                    <div className="panel-header">
-                        <h3>Order List ({orders.length})</h3>
-                        <div className="panel-icon">📋</div>
-                    </div>
-                    <div className="panel-actions">
-                        <button
-                            className="inventory-btn"
-                            onClick={handleAddToInventory}
-                            disabled={orders.length === 0}
-                        >
-                            📦 Add to Inventory
-                        </button>
-                        <button
-                            className="clear-storage-btn"
-                            onClick={() => {
-                                localStorage.removeItem('scannedOrders')
-                                addNotification('Storage cleared successfully', 'info')
-                            }}
-                            title="Clear saved data"
-                        >
-                            🗄️ Clear Storage
-                        </button>
-                    </div>
-                    <div className="panel-content">
-                        {orders.length === 0 ? (
-                            <div className="empty-state">
-                                <p>No orders scanned yet</p>
-                            </div>
-                        ) : (
-                            <div className="order-list">
-                                {orders.map((order) => (
-                                    <div
-                                        key={order.id}
-                                        className={`order-item ${selectedOrder?.id === order.id ? 'selected' : ''}`}
-                                        onClick={() => setSelectedOrder(order)}
-                                    >
-                                        <div className="order-item-main">
-                                            <span className="order-code">{order.task_code}</span>
-                                            <span className="order-name">{order.product_name_new || 'No name'}</span>
-                                        </div>
-                                        <button
-                                            className="delete-btn"
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                handleDeleteOrder(order.id)
-                                            }}
-                                        >
-                                            🗑️
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+            {/* Loading state */}
+            {isLoadingConfig && (
+                <div className="loading-overlay">
+                    <div className="loading-content">
+                        <div className="spinner"></div>
+                        <p>Loading configuration...</p>
                     </div>
                 </div>
+            )}
 
-                <div className="panel center-panel">
-                    <div className="panel-header">
-                        <div className="instructions">Click on the row to select, press Space to delete</div>
-                        <button className="clear-btn" onClick={handleClearList}>
-                            🗑️ Clear List
-                        </button>
-                    </div>
-                    <div className="panel-content">
-                        {selectedOrder ? (
-                            <OrderView config={config} order={selectedOrder} />
-                        ) : (
-                            <div className="empty-state">
-                                <div className="empty-icon">📦</div>
-                                <p>No orders yet</p>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-
-            </div>
-
-            {showSettings && (
+            {/* Show Settings if config is invalid or forced open */}
+            {(showSettings || !isConfigValid) ? (
                 <div className="settings-overlay">
                     <div className="settings-modal">
                         <div className="settings-header">
-                            <h2>Settings</h2>
-                            <button
-                                className="close-btn"
-                                onClick={() => setShowSettings(false)}
-                            >
-                                ✕
-                            </button>
+                            <h2>Database Configuration Required</h2>
+                            {isConfigValid && (
+                                <button
+                                    className="close-btn"
+                                    onClick={() => setShowSettings(false)}
+                                >
+                                    ✕
+                                </button>
+                            )}
                         </div>
                         <Settings
                             config={config}
@@ -365,10 +314,113 @@ function App() {
                         />
                     </div>
                 </div>
-            )}
+            ) : (
+                <>
+                    <div className="app-header">
+                        <h1 className="app-title">Scan Barcode & Manage Orders</h1>
+                        <div className="header-controls">
+                            <div className="total-orders">Total orders: {totalOrders}</div>
+                            <button
+                                className="settings-btn"
+                                onClick={() => setShowSettings(!showSettings)}
+                            >
+                                ⚙️ Settings
+                            </button>
+                            <button
+                                className="settings-btn"
+                                onClick={() => setShowBarTenderSettings(!showBarTenderSettings)}
+                            >
+                                🏷️ BarTender
+                            </button>
+                        </div>
+                    </div>
 
-            {showBarTenderSettings && (
-                <BarTenderSettings onClose={() => setShowBarTenderSettings(false)} />
+                    <div className="scan-section">
+                        <Scanner config={config} onOrderScanned={handleOrderScanned} isScanning={isScanning} />
+                    </div>
+
+                    <div className="main-content">
+                        <div className="panel order-list-panel">
+                            <div className="panel-header">
+                                <h3>Order List ({orders.length})</h3>
+                                <div className="panel-icon">📋</div>
+                            </div>
+                            <div className="panel-actions">
+                                <button
+                                    className="inventory-btn"
+                                    onClick={handleAddToInventory}
+                                    disabled={orders.length === 0}
+                                >
+                                    📦 Add to Inventory
+                                </button>
+                                <button
+                                    className="clear-storage-btn"
+                                    onClick={() => {
+                                        localStorage.removeItem('scannedOrders')
+                                        addNotification('Storage cleared successfully', 'info')
+                                    }}
+                                    title="Clear saved data"
+                                >
+                                    🗄️ Clear Storage
+                                </button>
+                            </div>
+                            <div className="panel-content">
+                                {orders.length === 0 ? (
+                                    <div className="empty-state">
+                                        <p>No orders scanned yet</p>
+                                    </div>
+                                ) : (
+                                    <div className="order-list">
+                                        {orders.map((order) => (
+                                            <div
+                                                key={order.id}
+                                                className={`order-item ${selectedOrder?.id === order.id ? 'selected' : ''}`}
+                                                onClick={() => setSelectedOrder(order)}
+                                            >
+                                                <div className="order-item-main">
+                                                    <span className="order-code">{order.task_code}</span>
+                                                    <span className="order-name">{order.product_name_new || 'No name'}</span>
+                                                </div>
+                                                <button
+                                                    className="delete-btn"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        handleDeleteOrder(order.id)
+                                                    }}
+                                                >
+                                                    🗑️
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="panel center-panel">
+                            <div className="panel-header">
+                                <div className="instructions">Click on the row to select, press Space to delete</div>
+                                <button className="clear-btn" onClick={handleClearList}>
+                                    🗑️ Clear List
+                                </button>
+                            </div>
+                            <div className="panel-content">
+                                {selectedOrder ? (
+                                    <OrderView config={config} order={selectedOrder} />
+                                ) : (
+                                    <div className="empty-state">
+                                        <div className="empty-icon">📦</div>
+                                        <p>No orders yet</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {showBarTenderSettings && (
+                        <BarTenderSettings onClose={() => setShowBarTenderSettings(false)} />
+                    )}
+                </>
             )}
 
             <div className="app-footer">

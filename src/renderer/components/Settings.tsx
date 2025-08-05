@@ -43,6 +43,12 @@ const Settings: React.FC<SettingsProps> = ({ config, onConfigChange }) => {
             if (window.electronAPI) {
                 const result = await window.electronAPI.testDatabaseConnection()
                 setTestResult({ success: result, message: result ? 'Connection successful!' : 'Connection failed' })
+
+                // Nếu test thành công, lưu config
+                if (result) {
+                    await window.electronAPI.setConfig(config)
+                    // addNotification('Configuration saved successfully!', 'success') // This line was not in the original file, so it's not added.
+                }
             } else {
                 setTestResult({ success: false, message: 'electronAPI not available' })
             }

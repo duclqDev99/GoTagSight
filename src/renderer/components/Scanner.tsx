@@ -52,6 +52,7 @@ const Scanner: React.FC<ScannerProps> = ({ config, onOrderScanned, isScanning = 
     const [manualCode, setManualCode] = useState('')
     const [error, setError] = useState('')
     const videoRef = useRef<HTMLVideoElement>(null)
+    const inputRef = useRef<HTMLInputElement>(null)
 
     const startScanning = () => {
         setIsCameraScanning(true)
@@ -161,6 +162,12 @@ const Scanner: React.FC<ScannerProps> = ({ config, onOrderScanned, isScanning = 
         }
     }, [])
 
+    useEffect(() => {
+        if (!isScanning && inputRef.current) {
+            inputRef.current.focus()
+        }
+    }, [isScanning])
+
     return (
         <div className="scanner-container">
             {/* <h2>Barcode Scanner</h2>
@@ -204,6 +211,7 @@ const Scanner: React.FC<ScannerProps> = ({ config, onOrderScanned, isScanning = 
                         maxLength={20}
                         className="code-input"
                         disabled={isScanning}
+                        ref={inputRef}
                     />
                     <button
                         type="submit"
