@@ -44,16 +44,17 @@ interface OrderDetail {
 interface ScannerProps {
     config: AppConfig
     onOrderScanned?: (code: string) => void
+    isScanning?: boolean
 }
 
-const Scanner: React.FC<ScannerProps> = ({ config, onOrderScanned }) => {
-    const [isScanning, setIsScanning] = useState(false)
+const Scanner: React.FC<ScannerProps> = ({ config, onOrderScanned, isScanning = false }) => {
+    const [isCameraScanning, setIsCameraScanning] = useState(false)
     const [manualCode, setManualCode] = useState('')
     const [error, setError] = useState('')
     const videoRef = useRef<HTMLVideoElement>(null)
 
     const startScanning = () => {
-        setIsScanning(true)
+        setIsCameraScanning(true)
         setError('')
 
         // Initialize Quagga
@@ -75,7 +76,7 @@ const Scanner: React.FC<ScannerProps> = ({ config, onOrderScanned }) => {
             }, (err: any) => {
                 if (err) {
                     setError('Failed to start camera: ' + err.message)
-                    setIsScanning(false)
+                    setIsCameraScanning(false)
                     return
                 }
 
@@ -90,7 +91,7 @@ const Scanner: React.FC<ScannerProps> = ({ config, onOrderScanned }) => {
             })
         } else {
             setError('Quagga library not loaded')
-            setIsScanning(false)
+            setIsCameraScanning(false)
         }
     }
 
@@ -98,7 +99,7 @@ const Scanner: React.FC<ScannerProps> = ({ config, onOrderScanned }) => {
         if (window.Quagga) {
             window.Quagga.stop()
         }
-        setIsScanning(false)
+        setIsCameraScanning(false)
     }
 
     const handleCodeDetected = async (code: string) => {
@@ -202,11 +203,22 @@ const Scanner: React.FC<ScannerProps> = ({ config, onOrderScanned }) => {
                         placeholder="Enter code (min 6 characters)"
                         maxLength={20}
                         className="code-input"
+                        disabled={isScanning}
                     />
-                    <button type="submit" className="submit-button">
-                        Search
+                    <button
+                        type="submit"
+                        className="submit-button"
+                        disabled={isScanning}
+                    >
+                        {isScanning ? 'Searching...' : 'Search'}
                     </button>
                 </form>
+                {isScanning && (
+                    <div className="loading-indicator">
+                        <div className="spinner"></div>
+                        <span>Searching for order...</span>
+                    </div>
+                )}
             </div>
         </div>
     )

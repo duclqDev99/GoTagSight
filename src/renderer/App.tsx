@@ -65,6 +65,7 @@ function App() {
     const [totalOrders, setTotalOrders] = useState(0)
     const [showSettings, setShowSettings] = useState(false)
     const [showBarTenderSettings, setShowBarTenderSettings] = useState(false)
+    const [isScanning, setIsScanning] = useState(false)
     const [notifications, setNotifications] = useState<Array<{
         id: string
         message: string
@@ -114,6 +115,9 @@ function App() {
 
     const handleOrderScanned = async (code: string) => {
         if (!window.electronAPI) return
+
+        setIsScanning(true)
+        addNotification(`Scanning barcode: ${code}...`, 'info')
 
         try {
             const result = await window.electronAPI.getOrders(code)
@@ -167,6 +171,8 @@ function App() {
         } catch (error) {
             console.error('Error searching orders:', error)
             addNotification(`Error searching orders: ${error}`, 'error')
+        } finally {
+            setIsScanning(false)
         }
     }
 
@@ -258,7 +264,7 @@ function App() {
             </div>
 
             <div className="scan-section">
-                <Scanner config={config} onOrderScanned={handleOrderScanned} />
+                <Scanner config={config} onOrderScanned={handleOrderScanned} isScanning={isScanning} />
             </div>
 
             <div className="main-content">
