@@ -1,7 +1,8 @@
 import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
-import { BarTenderConfig } from './barTenderIntegration'
+import { app } from 'electron'
+import { ApiConfig } from './api'
 
 export interface DatabaseConfig {
     host: string
@@ -12,8 +13,25 @@ export interface DatabaseConfig {
     tableName: string
 }
 
+export interface BarTenderConfig {
+    enabled: boolean
+    method: 'named_pipe' | 'http' | 'file' | 'excel'
+    namedPipePath?: string
+    httpUrl?: string
+    filePath?: string
+    excelPath?: string
+    templateName?: string
+    printQuantity?: number
+    autoPrint?: boolean
+    bartenderPath?: string
+    templatePath?: string
+    printScriptPath?: string
+    printMethod?: 'direct' | 'script'
+}
+
 export interface AppConfig {
     database: DatabaseConfig
+    apiConfig: ApiConfig // Thêm API config
     imagePath: string
     barTenderConfig: BarTenderConfig
     encryptionKey: string
@@ -25,7 +43,7 @@ class ConfigManager {
     private config: AppConfig | null = null
 
     constructor() {
-        this.configPath = path.join(__dirname, '../src/config.encrypted')
+        this.configPath = path.join(app.getPath('userData'), 'config.encrypted')
         this.encryptionKey = process.env.ENCRYPTION_KEY || 'your-secret-key-change-this'
     }
 
@@ -69,6 +87,19 @@ class ConfigManager {
                 database: 'production',
                 tableName: 'order_details'
             },
+            apiConfig: {
+                baseURL: '',
+                timeout: 10000,
+                username: '',
+                password: '',
+                environment: 'development',
+                environmentUrls: {
+                    development: '',
+                    staging: '',
+                    production: '',
+                    custom: ''
+                }
+            },
             imagePath: '/Users/macvn/Desktop/test-image',
             barTenderConfig: {
                 enabled: false,
@@ -76,11 +107,15 @@ class ConfigManager {
                 filePath: path.join(process.cwd(), 'print_queue.json'),
                 excelPath: path.join(process.cwd(), 'bartender_export.xlsx'),
                 templateName: 'Default',
-                printQuantity: 1
+                printQuantity: 1,
+                autoPrint: false,
+                bartenderPath: '',
+                templatePath: '',
+                printScriptPath: '',
+                printMethod: 'direct'
             },
             encryptionKey: this.encryptionKey
         }
-
         this.saveConfig(defaultConfig)
         console.log('Default config created. Please edit the config file.')
     }
@@ -131,8 +166,22 @@ class ConfigManager {
     // Cập nhật cấu hình database
     updateDatabaseConfig(dbConfig: DatabaseConfig): void {
         if (!this.config) {
-            this.config = this.loadConfig() || {
+            this.config = {
                 database: dbConfig,
+                apiConfig: {
+                    baseURL: '',
+                    timeout: 10000,
+                    username: '',
+                    password: '',
+                    apiKey: '',
+                    environment: 'development',
+                    environmentUrls: {
+                        development: '',
+                        staging: '',
+                        production: '',
+                        custom: ''
+                    }
+                },
                 imagePath: '',
                 barTenderConfig: {
                     enabled: false,
@@ -140,7 +189,12 @@ class ConfigManager {
                     filePath: path.join(process.cwd(), 'print_queue.json'),
                     excelPath: path.join(process.cwd(), 'bartender_export.xlsx'),
                     templateName: 'Default',
-                    printQuantity: 1
+                    printQuantity: 1,
+                    autoPrint: false,
+                    bartenderPath: '',
+                    templatePath: '',
+                    printScriptPath: '',
+                    printMethod: 'direct'
                 },
                 encryptionKey: this.encryptionKey
             }
@@ -148,6 +202,42 @@ class ConfigManager {
             this.config.database = dbConfig
         }
         this.saveConfig(this.config)
+    }
+
+    // Cập nhật cấu hình API
+    updateApiConfig(apiConfig: ApiConfig): void {
+        if (!this.config) {
+            this.config = {
+                database: {
+                    host: 'localhost',
+                    port: 3306,
+                    user: '',
+                    password: '',
+                    database: '',
+                    tableName: 'order_details'
+                },
+                apiConfig: apiConfig,
+                imagePath: '',
+                barTenderConfig: {
+                    enabled: false,
+                    method: 'file',
+                    filePath: path.join(process.cwd(), 'print_queue.json'),
+                    excelPath: path.join(process.cwd(), 'bartender_export.xlsx'),
+                    templateName: 'Default',
+                    printQuantity: 1,
+                    autoPrint: false,
+                    bartenderPath: '',
+                    templatePath: '',
+                    printScriptPath: '',
+                    printMethod: 'direct'
+                },
+                encryptionKey: this.encryptionKey
+            }
+        } else {
+            this.config.apiConfig = apiConfig
+        }
+        this.saveConfig(this.config)
+        console.log('API config saved:', apiConfig)
     }
 
     // Cập nhật đường dẫn ảnh
@@ -162,6 +252,20 @@ class ConfigManager {
                     database: '',
                     tableName: 'order_details'
                 },
+                apiConfig: {
+                    baseURL: '',
+                    timeout: 10000,
+                    username: '',
+                    password: '',
+                    apiKey: '',
+                    environment: 'development',
+                    environmentUrls: {
+                        development: '',
+                        staging: '',
+                        production: '',
+                        custom: ''
+                    }
+                },
                 imagePath,
                 barTenderConfig: {
                     enabled: false,
@@ -169,7 +273,12 @@ class ConfigManager {
                     filePath: path.join(process.cwd(), 'print_queue.json'),
                     excelPath: path.join(process.cwd(), 'bartender_export.xlsx'),
                     templateName: 'Default',
-                    printQuantity: 1
+                    printQuantity: 1,
+                    autoPrint: false,
+                    bartenderPath: '',
+                    templatePath: '',
+                    printScriptPath: '',
+                    printMethod: 'direct'
                 },
                 encryptionKey: this.encryptionKey
             }

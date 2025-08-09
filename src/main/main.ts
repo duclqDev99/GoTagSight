@@ -1,9 +1,10 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
-import { dbManager } from './database'
+// import { dbManager } from './database'
 import { configManager, DatabaseConfig } from './config'
 import { BarTenderIntegration } from './barTenderIntegration'
+import { ApiService } from './api'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -53,7 +54,7 @@ function createWindow() {
             }
         }, 2000)
     } else if (mainWindow) {
-        mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
+        mainWindow.loadFile(path.join(__dirname, '../dist/renderer/src/renderer/index.html'))
     }
 
     mainWindow.on('closed', () => {
@@ -75,15 +76,16 @@ app.on('activate', () => {
     }
 })
 
-// IPC handlers for database operations
+// IPC handlers for API operations
 ipcMain.handle('get-orders', async (event, taskCode: string) => {
     try {
-        const connected = await dbManager.connect()
-        if (!connected) {
+        const config = configManager.getConfig()
+        if (!config || !config.apiConfig) {
             return { orders: [], totalFound: 0, validOrders: 0 }
         }
 
-        const result = await dbManager.searchOrders(taskCode)
+        const apiService = new ApiService(config.apiConfig)
+        const result = await apiService.searchOrders(taskCode)
         return result
     } catch (error) {
         console.error('Failed to get orders:', error)
@@ -93,13 +95,13 @@ ipcMain.handle('get-orders', async (event, taskCode: string) => {
 
 ipcMain.handle('update-order-status', async (event, orderId: number, status: string, notes?: string) => {
     try {
-        const connected = await dbManager.connect()
-        if (!connected) {
+        const config = configManager.getConfig()
+        if (!config || !config.apiConfig) {
             return false
         }
 
-        const success = await dbManager.updateOrderStatus(orderId, status, notes)
-        return success
+        const apiService = new ApiService(config.apiConfig)
+        return await apiService.updateOrderStatus(orderId, status, notes)
     } catch (error) {
         console.error('Failed to update order status:', error)
         return false
@@ -108,13 +110,13 @@ ipcMain.handle('update-order-status', async (event, orderId: number, status: str
 
 ipcMain.handle('update-order-status-code', async (event, orderId: number, statusCodeString: string) => {
     try {
-        const connected = await dbManager.connect()
-        if (!connected) {
+        const config = configManager.getConfig()
+        if (!config || !config.apiConfig) {
             return false
         }
 
-        const success = await dbManager.updateOrderStatusCode(orderId, statusCodeString)
-        return success
+        const apiService = new ApiService(config.apiConfig)
+        return await apiService.updateOrderStatusCode(orderId, statusCodeString)
     } catch (error) {
         console.error('Failed to update order status code:', error)
         return false
@@ -122,9 +124,11 @@ ipcMain.handle('update-order-status-code', async (event, orderId: number, status
 })
 
 ipcMain.handle('get-config', async () => {
+    const config = configManager.getConfig()
     return {
         imagePath: configManager.getImagePath(),
-        databaseConfig: configManager.getDatabaseConfig()
+        databaseConfig: configManager.getDatabaseConfig(),
+        apiConfig: config?.apiConfig || null
     }
 })
 
@@ -135,6 +139,9 @@ ipcMain.handle('set-config', async (event, config: any) => {
         }
         if (config.databaseConfig) {
             configManager.updateDatabaseConfig(config.databaseConfig)
+        }
+        if (config.apiConfig) {
+            configManager.updateApiConfig(config.apiConfig)
         }
         return true
     } catch (error) {
@@ -150,33 +157,45 @@ ipcMain.handle('select-folder', async () => {
     return result.filePaths[0] || ''
 })
 
-ipcMain.handle('test-database-connection', async (event, dbConfig: DatabaseConfig) => {
+ipcMain.handle('test-database-connection', async () => {
     try {
-        const connected = await dbManager.connect(dbConfig)
-        if (connected) {
-            const isConnected = await dbManager.testConnection()
-            return { success: isConnected, message: isConnected ? 'Connection successful' : 'Connection failed' }
+        const config = configManager.getConfig()
+        console.log('Config for API test:', config?.apiConfig)
+
+        if (!config || !config.apiConfig) {
+            console.log('No API config found')
+            return false
         }
-        return { success: false, message: 'Failed to connect to database' }
+
+        if (!config.apiConfig.baseURL) {
+            console.log('Base URL is empty')
+            return false
+        }
+
+        console.log('Creating ApiService with config:', config.apiConfig)
+        const apiService = new ApiService(config.apiConfig)
+        const result = await apiService.testConnection()
+        console.log('API test result:', result)
+        return result
     } catch (error) {
-        console.error('Database connection test failed:', error)
-        return { success: false, message: `Connection error: ${error}` }
+        console.error('Failed to test API connection:', error)
+        return false
     }
 })
 
-ipcMain.handle('create-sample-data', async (event) => {
-    try {
-        const connected = await dbManager.connect()
-        if (connected) {
-            await dbManager.createSampleData()
-            return { success: true, message: 'Sample data created successfully' }
-        }
-        return { success: false, message: 'Failed to connect to database' }
-    } catch (error) {
-        console.error('Failed to create sample data:', error)
-        return { success: false, message: `Error: ${error}` }
-    }
-})
+// ipcMain.handle('create-sample-data', async (event) => {
+//     try {
+//         const connected = await dbManager.connect()
+//         if (connected) {
+//             await dbManager.createSampleData()
+//             return { success: true, message: 'Sample data created successfully' }
+//         }
+//         return { success: false, message: 'Failed to connect to database' }
+//     } catch (error) {
+//         console.error('Failed to create sample data:', error)
+//         return { success: false, message: `Error: ${error}` }
+//     }
+// })
 
 ipcMain.handle('validate-config', async () => {
     return configManager.validateConfig()
@@ -257,12 +276,9 @@ ipcMain.handle('convert-file-to-image', async (event, filePath: string) => {
 
         let command = ''
 
-        if (ext === '.ai') {
-            // Convert AI to PNG using ImageMagick
-            command = `convert "${filePath}[0]" -resize 800x600 "${outputPath}"`
-        } else if (ext === '.pdf') {
-            // Convert PDF to PNG using ImageMagick
-            command = `convert "${filePath}[0]" -resize 800x600 "${outputPath}"`
+        if (ext === '.ai' || ext === '.pdf') {
+            // Convert AI/PDF to PNG using ImageMagick 7+
+            command = `magick "${filePath}[0]" -resize 800x600 "${outputPath}"`
         } else {
             return null
         }
@@ -295,7 +311,9 @@ ipcMain.handle('convert-file-to-image', async (event, filePath: string) => {
 ipcMain.handle('print-barcode', async (event, barcodeData: string, orderInfo?: any) => {
     try {
         const config = configManager.getConfig()
-        if (!config || !config.barTenderConfig.enabled) {
+        console.log('BarTender config:', config?.barTenderConfig)
+
+        if (!config || !config.barTenderConfig || !Boolean(config.barTenderConfig.enabled)) {
             return { success: false, message: 'BarTender integration is disabled' }
         }
 
@@ -350,5 +368,22 @@ ipcMain.handle('set-barTender-config', async (event, barTenderConfig: any) => {
     } catch (error) {
         console.error('Failed to set BarTender config:', error)
         return false
+    }
+})
+
+ipcMain.handle('export-order-to-excel', async (event, order, exportFolder) => {
+    try {
+        const config = configManager.getConfig()
+        if (!config || !config.barTenderConfig) {
+            return { success: false, message: 'BarTender config not found' }
+        }
+        // Ghi đè exportFolder nếu truyền vào
+        const barTenderConfig = { ...config.barTenderConfig, excelPath: exportFolder }
+        const barTender = new BarTenderIntegration(barTenderConfig)
+        const success = await barTender.exportToExcel(order.task_code_front || order.task_code, order)
+        return { success }
+    } catch (error) {
+        console.error('Export to Excel error:', error)
+        return { success: false, message: error?.message || error }
     }
 })

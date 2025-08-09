@@ -8,6 +8,7 @@ declare global {
             setConfig: (config: any) => Promise<void>
             selectFolder: () => Promise<string>
             testDatabaseConnection: () => Promise<boolean>
+            testApiConnection: () => Promise<boolean>
             createSampleData: () => Promise<void>
             checkFileExists: (filePath: string) => Promise<boolean>
             getImageData: (filePath: string) => Promise<string | null>
@@ -17,8 +18,19 @@ declare global {
             testBarTenderConnection: () => Promise<{ success: boolean; message: string }>
             getBarTenderConfig: () => Promise<any>
             setBarTenderConfig: (config: any) => Promise<boolean>
+            exportOrderToExcel: (order: any, exportFolder: string) => Promise<any>
         }
         Quagga: any
+    }
+    interface BarTenderConfig {
+        enabled: boolean
+        bartenderPath: string
+        templatePath: string
+        exportFolder: string
+        autoExport: boolean
+        autoPrint: boolean
+        printScriptPath?: string
+        printMethod?: 'direct' | 'script'
     }
 }
 

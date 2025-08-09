@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setConfig: (config: any) => ipcRenderer.invoke('set-config', config),
     selectFolder: () => ipcRenderer.invoke('select-folder'),
     testDatabaseConnection: () => ipcRenderer.invoke('test-database-connection'),
+    testApiConnection: () => ipcRenderer.invoke('test-database-connection'), // Same handler for now
     createSampleData: () => ipcRenderer.invoke('create-sample-data'),
     checkFileExists: (filePath: string) => ipcRenderer.invoke('check-file-exists', filePath),
     getImageData: (filePath: string) => ipcRenderer.invoke('get-image-data', filePath),
@@ -18,7 +19,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     printBarcode: (barcodeData: string, orderInfo?: any) => ipcRenderer.invoke('print-barcode', barcodeData, orderInfo),
     testBarTenderConnection: () => ipcRenderer.invoke('test-barTender-connection'),
     getBarTenderConfig: () => ipcRenderer.invoke('get-barTender-config'),
-    setBarTenderConfig: (config: any) => ipcRenderer.invoke('set-barTender-config', config)
+    setBarTenderConfig: (config: any) => ipcRenderer.invoke('set-barTender-config', config),
+    exportOrderToExcel: (order: any, exportFolder: string) => ipcRenderer.invoke('export-order-to-excel', order, exportFolder)
 })
 
 declare global {
@@ -36,6 +38,7 @@ declare global {
             getImageData: (filePath: string) => Promise<string | null>
             listFiles: (dirPath: string) => Promise<string[]>
             convertFileToImage: (filePath: string) => Promise<string | null>
+            exportOrderToExcel: (order: any, exportFolder: string) => Promise<any>
         }
     }
 } 

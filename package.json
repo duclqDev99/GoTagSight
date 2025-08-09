@@ -56,13 +56,34 @@
         },
         "files": [
             "dist/**/*",
-            "node_modules/**/*"
+            "node_modules/**/*",
+            "demo-images/**/*"
         ],
         "mac": {
             "category": "public.app-category.productivity"
         },
         "win": {
-            "target": "nsis"
+            "target": [
+                {
+                    "target": "nsis",
+                    "arch": [
+                        "x64",
+                        "arm64"
+                    ]
+                }
+            ]
+        },
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true,
+            "createDesktopShortcut": true,
+            "createStartMenuShortcut": true,
+            "shortcutName": "GoTagSight",
+            "uninstallDisplayName": "GoTagSight",
+            "artifactName": "GoTagSight-Setup-${version}.${ext}",
+            "deleteAppDataOnUninstall": true,
+            "runAfterFinish": true,
+            "include": "installer.nsh"
         }
     }
 }

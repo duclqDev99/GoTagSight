@@ -14,4 +14,4 @@ if ($LASTEXITCODE -eq 0) {
 } else {
     Write-Host "Failed to install Chocolatey. You may need to run PowerShell as Administrator." -ForegroundColor Red
     exit 1
-} 
+}

@@ -12,6 +12,11 @@ export interface BarTenderConfig {
     excelPath?: string
     templateName?: string
     printQuantity?: number
+    autoPrint?: boolean
+    bartenderPath?: string
+    templatePath?: string
+    printScriptPath?: string
+    printMethod?: 'direct' | 'script' // Thêm option chọn method in
 }
 
 export class BarTenderIntegration {
@@ -22,7 +27,7 @@ export class BarTenderIntegration {
     }
 
     async printBarcode(barcodeData: string, orderInfo?: any): Promise<boolean> {
-        if (!this.config.enabled) {
+        if (!this.config || !Boolean(this.config.enabled)) {
             console.log('BarTender integration is disabled')
             return false
         }
@@ -132,20 +137,49 @@ export class BarTenderIntegration {
         }
     }
 
-    private async exportToExcel(barcodeData: string, orderInfo?: any): Promise<boolean> {
+    /**
+     * Gọi script PowerShell để in tự động
+     */
+    private async runPowerShellScript(scriptPath: string, excelPath: string): Promise<boolean> {
+        return new Promise((resolve) => {
+            try {
+                const { spawn } = require('child_process')
+                const args = ['-ExecutionPolicy', 'Bypass', '-File', scriptPath, excelPath]
+                const process = spawn('powershell.exe', args)
+                process.stdout.on('data', (data: Buffer) => {
+                    console.log('PowerShell output:', data.toString())
+                })
+                process.stderr.on('data', (data: Buffer) => {
+                    console.error('PowerShell error:', data.toString())
+                })
+                process.on('close', (code: number) => {
+                    if (code === 0) {
+                        console.log('PowerShell script completed successfully')
+                        resolve(true)
+                    } else {
+                        console.error('PowerShell script failed with code:', code)
+                        resolve(false)
+                    }
+                })
+            } catch (error) {
+                console.error('Error running PowerShell script:', error)
+                resolve(false)
+            }
+        })
+    }
+
+    public async exportToExcel(barcodeData: string, orderInfo?: any): Promise<boolean> {
+        if (!this.config || !Boolean(this.config.enabled)) {
+            console.log('BarTender integration is disabled')
+            return false
+        }
+
         try {
+            // Chỉ export 3 cột: BARCODE, TENKH, SL IN
             const excelData = {
-                timestamp: new Date().toISOString(),
-                barcode: barcodeData,
-                task_code: orderInfo?.task_code || '',
-                task_code_front: orderInfo?.task_code_front || '',
-                task_code_back: orderInfo?.task_code_back || '',
-                product_name: orderInfo?.product_name_new || '',
-                layout_style: orderInfo?.layout_style || '',
-                quantity: orderInfo?.quantity || 1,
-                status: orderInfo?.status || '',
-                price: orderInfo?.price || 0,
-                notes: orderInfo?.seller_note || ''
+                BARCODE: barcodeData,
+                TENKH: orderInfo?.customer_name || '',
+                'SL IN': 1
             }
 
             const filePath = this.config.excelPath || path.join(process.cwd(), 'bartender_export.xlsx')
@@ -205,10 +239,33 @@ export class BarTenderIntegration {
             XLSX.utils.book_append_sheet(workbook, worksheet, 'BarTender Data')
 
             // Write to file
-            XLSX.writeFile(workbook, validPath)
+            const xlsPath = validPath.replace(/\.xlsx$/i, '.xls')
+            XLSX.writeFile(workbook, xlsPath, { bookType: 'xls' })
 
-            console.log(`Data exported to Excel: ${validPath}`)
+            console.log(`Data exported to Excel: ${xlsPath}`)
             console.log('Exported data:', excelData)
+
+            // Kiểm tra method in và thực hiện theo cấu hình
+            const printMethod = this.config.printMethod || 'direct'
+
+            if (this.config.autoPrint) {
+                if (printMethod === 'direct' && this.config.bartenderPath && this.config.templatePath) {
+                    // Gọi BarTender trực tiếp
+                    const { exec } = require('child_process')
+                    const args = `/F=\"${this.config.templatePath}\" /D=\"${xlsPath}\" /P /X`
+                    exec(`\"${this.config.bartenderPath}\" ${args}`, (error, stdout, stderr) => {
+                        if (error) {
+                            console.error('BarTender print error:', error)
+                        } else {
+                            console.log('BarTender print success:', stdout)
+                        }
+                    })
+                } else if (printMethod === 'script' && this.config.printScriptPath) {
+                    // Gọi script PowerShell
+                    await this.runPowerShellScript(this.config.printScriptPath, xlsPath)
+                }
+            }
+
             return true
         } catch (error) {
             console.error('Excel export error:', error)

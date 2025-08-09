@@ -1,16 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react'
 
-interface DatabaseConfig {
-    host: string
-    port: number
-    user: string
-    password: string
-    database: string
-    tableName: string
+interface ApiConfig {
+    baseURL: string
+    timeout?: number
+    username?: string
+    password?: string
+    apiKey?: string
 }
 
 interface AppConfig {
-    databaseConfig: DatabaseConfig
+    apiConfig: ApiConfig
     imagePath: string
 }
 

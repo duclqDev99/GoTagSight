@@ -1,31 +1,35 @@
 import React, { useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 
-interface DatabaseConfig {
-    host: string
-    port: number
-    user: string
-    password: string
-    database: string
-    tableName: string
+interface ApiConfig {
+    baseURL: string
+    timeout?: number
+    username?: string
+    password?: string
+    apiKey?: string
 }
 
 interface AppConfig {
-    databaseConfig: DatabaseConfig
+    apiConfig: ApiConfig
     imagePath: string
 }
 
 interface OrderDetail {
     id: number
+    order_id: number
+    origin_id: number
     task_code: string
     task_code_front: string
     task_code_back: string
     product_name_new: string
+    customer_name: string
     description_task: string
     description_task_front: string
     description_task_back: string
     quantity: number
+    total_quantity: number
     status: string
+    status_code_string: string
     price: number
     score_task: number
     score_task_front: number
@@ -40,6 +44,14 @@ interface OrderDetail {
     link: string
     created_at: string
     updated_at: string
+    // Thông tin thêm cho grouping
+    line_in_order: number
+    line_in_quantity: number
+    shipping_address: string
+    shipping_city: string
+    shipping_state: string
+    shipping_zip: string
+    platform: string
 }
 
 interface OrderViewProps {
@@ -192,6 +204,9 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
             <div className="image-only-view">
                 {imagePath ? (
                     <div className="image-container">
+                        {/* Qty badge overlay */}
+                        <div className="qty-badge">Qty: {order.quantity || 0}</div>
+
                         {fileType === 'pdf' ? (
                             <div className="pdf-viewer">
                                 <div className="pdf-preview">
