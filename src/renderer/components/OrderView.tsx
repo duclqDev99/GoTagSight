@@ -85,6 +85,7 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
         if (order && order.task_code_front && config.imagePath) {
             loadImage(order.task_code_front)
         }
+        console.log(order)
     }, [order, config.imagePath])
 
     const loadImage = async (taskCode: string) => {
@@ -210,6 +211,7 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
                     <div className="image-container">
                         {/* Qty badge overlay */}
                         <div className="qty-badge">Qty: {order.quantity || 0}</div>
+                        <div className="size-badge">Size: {order.size_style || ''}</div>
 
                         {fileType === 'pdf' ? (
                             <div className="pdf-viewer">
