@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.invoke('update-order-status', orderId, status, notes),
     updateOrderStatusCode: (orderId: number, statusCodeString: string) =>
         ipcRenderer.invoke('update-order-status-code', orderId, statusCodeString),
+    updateOrderStatusCodes: (ids: number[], statusCodeString: string) =>
+        ipcRenderer.invoke('update-order-status-codes', ids, statusCodeString),
     getConfig: () => ipcRenderer.invoke('get-config'),
     setConfig: (config: any) => ipcRenderer.invoke('set-config', config),
     selectFolder: () => ipcRenderer.invoke('select-folder'),
@@ -20,7 +22,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     testBarTenderConnection: () => ipcRenderer.invoke('test-barTender-connection'),
     getBarTenderConfig: () => ipcRenderer.invoke('get-barTender-config'),
     setBarTenderConfig: (config: any) => ipcRenderer.invoke('set-barTender-config', config),
-    exportOrderToExcel: (order: any, exportFolder: string) => ipcRenderer.invoke('export-order-to-excel', order, exportFolder)
+    exportOrderToExcel: (order: any, exportFolder: string) => ipcRenderer.invoke('export-order-to-excel', order, exportFolder),
+    setAuthToken: (token: string | null) => ipcRenderer.invoke('set-auth-token', token)
 })
 
 declare global {
@@ -29,6 +32,7 @@ declare global {
             getOrders: (taskCode: string) => Promise<any[]>
             updateOrderStatus: (orderId: number, status: string, notes?: string) => Promise<boolean>
             updateOrderStatusCode: (orderId: number, statusCodeString: string) => Promise<boolean>
+            updateOrderStatusCodes: (ids: number[], statusCodeString: string) => Promise<boolean>
             getConfig: () => Promise<any>
             setConfig: (config: any) => Promise<boolean>
             selectFolder: () => Promise<string>
@@ -39,6 +43,7 @@ declare global {
             listFiles: (dirPath: string) => Promise<string[]>
             convertFileToImage: (filePath: string) => Promise<string | null>
             exportOrderToExcel: (order: any, exportFolder: string) => Promise<any>
+            setAuthToken: (token: string | null) => Promise<boolean>
         }
     }
 } 

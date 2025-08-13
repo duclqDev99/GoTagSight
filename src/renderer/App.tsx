@@ -4,6 +4,7 @@ import OrderView from './components/OrderView'
 import Settings from './components/Settings'
 import BarTenderSettings from './components/BarTenderSettings'
 import Notification from './components/Notification'
+import Login from './components/Login'
 import './App.css'
 
 interface ApiConfig {
@@ -12,6 +13,9 @@ interface ApiConfig {
     username?: string
     password?: string
     apiKey?: string
+    // API riêng cho update operations
+    updateApiBaseURL?: string
+    updateApiKey?: string
 }
 
 interface BarTenderConfig {
@@ -35,6 +39,7 @@ interface OrderDetail {
     id: number
     order_id: number
     origin_id: number
+    scanTime?: number // Thời gian scan để sắp xếp
     task_code: string
     task_code_front: string
     task_code_back: string
@@ -108,6 +113,11 @@ function App() {
         type: 'success' | 'error' | 'warning' | 'info'
     }>>([])
 
+    // Authentication state
+    const [isAuthenticated, setIsAuthenticated] = useState(false)
+    const [authToken, setAuthToken] = useState<string | null>(null)
+    const [user, setUser] = useState<any>(null)
+
     // Kiểm tra config có hợp lệ không
     const validateConfig = (config: AppConfig): boolean => {
         return !!(config.apiConfig?.baseURL) // Chỉ cần baseURL là đủ
@@ -157,10 +167,28 @@ function App() {
                 console.error('Failed to parse saved orders:', error)
             }
         }
+
+        // Check authentication status
+        const token = localStorage.getItem('authToken')
+        const savedUser = localStorage.getItem('user')
+
+        if (token && savedUser) {
+            try {
+                const userData = JSON.parse(savedUser)
+                setAuthToken(token)
+                setUser(userData)
+                setIsAuthenticated(true)
+            } catch (error) {
+                console.error('Failed to parse user data:', error)
+                // Clear invalid data
+                localStorage.removeItem('authToken')
+                localStorage.removeItem('user')
+            }
+        }
     }, [])
 
     useEffect(() => {
-        // Group orders by order_id
+        // Group orders by order_id and sort by scan time
         const grouped = orders.reduce((acc, order) => {
             if (!acc[order.order_id]) {
                 acc[order.order_id] = []
@@ -169,8 +197,43 @@ function App() {
             return acc
         }, {} as { [key: number]: OrderDetail[] })
 
+        // Sort each group by scan time (newest first)
+        Object.keys(grouped).forEach(orderId => {
+            const orderGroup = grouped[parseInt(orderId)]
+            if (orderGroup && Array.isArray(orderGroup)) {
+                orderGroup.sort((a, b) => {
+                    const timeA = a.scanTime || 0
+                    const timeB = b.scanTime || 0
+                    return timeB - timeA // Newest first
+                })
+            }
+        })
+
         setGroupedOrders(grouped)
     }, [orders])
+
+    // Event listener cho phím Space để xóa item đang selected
+    useEffect(() => {
+        const handleKeyPress = (event: KeyboardEvent) => {
+            // Chỉ xử lý khi nhấn phím Space, có item được selected và không có input nào đang focus
+            if (event.code === 'Space' && selectedOrder && document.activeElement?.tagName !== 'INPUT') {
+                event.preventDefault() // Ngăn scroll trang
+
+                // Xác nhận xóa item đang selected
+                if (window.confirm(`Bạn có chắc muốn xóa item "${selectedOrder.task_code_front}"?`)) {
+                    handleRemoveOrder(selectedOrder.id)
+                }
+            }
+        }
+
+        // Thêm event listener
+        document.addEventListener('keydown', handleKeyPress)
+
+        // Cleanup khi component unmount
+        return () => {
+            document.removeEventListener('keydown', handleKeyPress)
+        }
+    }, [selectedOrder]) // Chỉ re-run khi selectedOrder thay đổi
 
     const addNotification = (message: string, type: 'success' | 'error' | 'warning' | 'info') => {
         const id = Date.now().toString()
@@ -225,7 +288,8 @@ function App() {
             result.orders.forEach(order => {
                 if (!orders.find(o => o.id === order.id)) {
                     setOrders(prev => {
-                        const newOrders = [order, ...prev] // Add new order at the beginning
+                        const orderWithScanTime = { ...order, scanTime: Date.now() }
+                        const newOrders = [orderWithScanTime, ...prev] // Add new order at the beginning
                         saveOrdersToStorage(newOrders)
                         return newOrders
                     })
@@ -307,32 +371,75 @@ function App() {
     const handleAddToInventory = async () => {
         if (!window.electronAPI || orders.length === 0) return
 
-        try {
-            let successCount = 0
-            let failCount = 0
+        console.log('=== DEBUG: Add to Inventory ===')
+        console.log('Orders count:', orders.length)
+        console.log('Current auth token:', authToken ? `${authToken.substring(0, 20)}...` : 'null')
+        console.log('Is authenticated:', isAuthenticated)
 
-            for (const order of orders) {
-                const success = await window.electronAPI.updateOrderStatusCode(order.id, 'C1F1R1P1E1V1I0')
-                if (success) {
-                    successCount++
-                } else {
-                    failCount++
-                }
+        try {
+            // Lấy tất cả IDs từ orders
+            const orderIds = orders.map(order => order.id)
+
+            console.log('Adding orders to inventory:', {
+                count: orderIds.length,
+                ids: orderIds,
+                statusCodeString: 'C1F1R1P1E1V1I0'
+            })
+
+            // Kiểm tra token trước khi gọi API
+            if (!authToken) {
+                throw new Error('Không có token authentication. Vui lòng đăng nhập lại.')
             }
 
-            if (successCount > 0) {
-                addNotification(`Successfully added ${successCount} orders to inventory${failCount > 0 ? `, ${failCount} failed` : ''}`, 'success')
+            // Sử dụng API mới để update tất cả orders cùng lúc
+            const success = await window.electronAPI.updateOrderStatusCodes(orderIds, 'C1F1R1P1E1V1I0')
+
+            console.log('API call result:', success)
+
+            if (success) {
+                addNotification(`Successfully added ${orderIds.length} orders to inventory`, 'success')
                 // Clear the order list after successful inventory addition
                 setOrders([])
                 setTotalOrders(0)
                 setSelectedOrder(null)
                 localStorage.removeItem('scannedOrders')
             } else {
-                addNotification('Failed to add orders to inventory', 'error')
+                addNotification('Failed to add orders to inventory - API returned false', 'error')
             }
-        } catch (error) {
+        } catch (error: any) {
+            console.error('=== DEBUG: Add to Inventory Error ===')
             console.error('Error adding orders to inventory:', error)
-            addNotification('Error adding orders to inventory', 'error')
+
+            // Hiển thị thông tin chi tiết về lỗi
+            let errorMessage = 'Error adding orders to inventory'
+
+            if (error.message) {
+                if (error.message.includes('No handler registered')) {
+                    errorMessage = 'IPC handler not found - please restart the application'
+                } else if (error.message.includes('Network Error')) {
+                    errorMessage = 'Network connection error - please check your internet connection'
+                } else if (error.message.includes('timeout')) {
+                    errorMessage = 'Request timeout - server is not responding'
+                } else if (error.message.includes('Token không hợp lệ') || error.message.includes('Invalid token')) {
+                    errorMessage = 'Token đã hết hạn. Vui lòng đăng nhập lại.'
+                    // Tự động logout khi token hết hạn
+                    setTimeout(() => {
+                        handleLogout()
+                    }, 2000)
+                } else if (error.message.includes('401') || error.message.includes('403')) {
+                    errorMessage = 'Authentication error - please login again'
+                    // Tự động logout khi có lỗi authentication
+                    setTimeout(() => {
+                        handleLogout()
+                    }, 2000)
+                } else if (error.message.includes('500')) {
+                    errorMessage = 'Server error - please try again later'
+                } else {
+                    errorMessage = `API Error: ${error.message}`
+                }
+            }
+
+            addNotification(errorMessage, 'error')
         }
     }
 
@@ -357,19 +464,110 @@ function App() {
     }
 
     const handleRemoveOrder = (orderId: number) => {
+        // Tìm order bị xóa để hiển thị thông tin
+        const orderToRemove = orders.find(o => o.id === orderId)
+
         setOrders(prev => {
             const newOrders = prev.filter(o => o.id !== orderId)
             saveOrdersToStorage(newOrders)
             setTotalOrders(newOrders.length)
 
-            // If removed order was selected, clear selection
+            // If removed order was selected, try to select another order
             if (selectedOrder?.id === orderId) {
-                setSelectedOrder(null)
+                // Tìm order khác trong cùng group để select
+                const sameGroupOrders = newOrders.filter(o => o.order_id === selectedOrder.order_id)
+                if (sameGroupOrders.length > 0) {
+                    setSelectedOrder(sameGroupOrders[0])
+                } else {
+                    // Nếu không có order nào trong group, select order đầu tiên
+                    setSelectedOrder(newOrders.length > 0 ? newOrders[0] : null)
+                }
             }
 
             return newOrders
         })
-        addNotification('Order removed from list', 'info')
+
+        // Hiển thị notification với thông tin chi tiết
+        const orderInfo = orderToRemove ? `${orderToRemove.task_code_front} (${orderToRemove.customer_name})` : 'Unknown order'
+        addNotification(`Đã xóa: ${orderInfo}`, 'info')
+    }
+
+    // Authentication handlers
+    const handleLoginSuccess = async (token: string, userData: any) => {
+        console.log('=== DEBUG: Login Success ===')
+        console.log('Token received:', token ? `${token.substring(0, 20)}...` : 'null')
+        console.log('User data:', userData)
+
+        // Clear old data first
+        setAuthToken(null)
+        setUser(null)
+        setIsAuthenticated(false)
+        localStorage.removeItem('authToken')
+        localStorage.removeItem('user')
+
+        // Set new data
+        setAuthToken(token)
+        setUser(userData)
+        setIsAuthenticated(true)
+
+        // Save to localStorage first
+        localStorage.setItem('authToken', token)
+        localStorage.setItem('user', JSON.stringify(userData))
+        console.log('✅ Token saved to localStorage')
+
+        // Set auth token in main process
+        if (window.electronAPI) {
+            try {
+                console.log('🔄 Setting token in main process...')
+                const success = await window.electronAPI.setAuthToken(token)
+                console.log('✅ Token set in main process:', success)
+
+                if (!success) {
+                    console.error('❌ Failed to set token in main process')
+                    addNotification('Cảnh báo: Token không được cập nhật trong main process', 'warning')
+                }
+            } catch (error) {
+                console.error('❌ Failed to set token in main process:', error)
+                addNotification('Lỗi: Không thể cập nhật token trong main process', 'error')
+            }
+        } else {
+            console.error('❌ window.electronAPI not available')
+            addNotification('Lỗi: Electron API không khả dụng', 'error')
+        }
+
+        // Verify token is set correctly
+        setTimeout(async () => {
+            try {
+                if (window.electronAPI) {
+                    // Test API call to verify token works
+                    const testResult = await window.electronAPI.updateOrderStatusCodes([484875], 'C1F1R1P1E1V1I0')
+                    console.log('✅ Token verification test result:', testResult)
+                }
+            } catch (error) {
+                console.error('❌ Token verification test failed:', error)
+            }
+        }, 1000)
+
+        addNotification('Đăng nhập thành công!', 'success')
+    }
+
+    const handleLoginError = (error: string) => {
+        addNotification(`Đăng nhập thất bại: ${error}`, 'error')
+    }
+
+    const handleLogout = async () => {
+        setAuthToken(null)
+        setUser(null)
+        setIsAuthenticated(false)
+        localStorage.removeItem('authToken')
+        localStorage.removeItem('user')
+
+        // Clear auth token in main process
+        if (window.electronAPI) {
+            await window.electronAPI.setAuthToken(null)
+        }
+
+        addNotification('Đã đăng xuất', 'info')
     }
 
     return (
@@ -384,200 +582,241 @@ function App() {
                 </div>
             )}
 
-            {/* Show Settings if config is invalid or forced open */}
-            {(showSettings || !isConfigValid) ? (
-                <div className="settings-overlay">
-                    <div className="settings-modal">
-                        <div className="settings-header">
-                            <h2>Database Configuration Required</h2>
-                            {isConfigValid && (
-                                <button
-                                    className="close-btn"
-                                    onClick={() => setShowSettings(false)}
-                                >
-                                    ✕
-                                </button>
-                            )}
-                        </div>
-                        <Settings
-                            config={config}
-                            onConfigChange={handleConfigChange}
-                        />
-                    </div>
-                </div>
+            {/* Show Login if not authenticated */}
+            {!isAuthenticated ? (
+                <Login
+                    onLoginSuccess={handleLoginSuccess}
+                    onLoginError={handleLoginError}
+                />
             ) : (
                 <>
-                    <div className="app-header">
-                        <h1 className="app-title">Scan Barcode & Manage Orders</h1>
-                        <div className="header-controls">
-                            <div className="total-orders">Total orders: {totalOrders}</div>
-                            <div className="header-buttons">
-                                <button
-                                    className="action-btn"
-                                    onClick={handleAddToInventory}
-                                    disabled={orders.length === 0}
-                                    title="Add all orders to inventory"
-                                >
-                                    📦 Add to Inventory
-                                </button>
-                                <button
-                                    className="action-btn"
-                                    onClick={handleClearList}
-                                    disabled={orders.length === 0}
-                                    title="Clear all orders from list"
-                                >
-                                    🗑️ Clear List
-                                </button>
-                                <button
-                                    className="settings-btn"
-                                    onClick={() => setShowSettings(!showSettings)}
-                                >
-                                    ⚙️ Settings
-                                </button>
-                                <button
-                                    className="settings-btn"
-                                    onClick={() => setShowBarTenderSettings(!showBarTenderSettings)}
-                                >
-                                    🏷️ BarTender
-                                </button>
+                    {/* Show Settings if config is invalid or forced open */}
+                    {(showSettings || !isConfigValid) ? (
+                        <div className="settings-overlay">
+                            <div className="settings-modal">
+                                <div className="settings-header">
+                                    <h2>Database Configuration Required</h2>
+                                    {isConfigValid && (
+                                        <button
+                                            className="close-btn"
+                                            onClick={() => setShowSettings(false)}
+                                        >
+                                            ✕
+                                        </button>
+                                    )}
+                                </div>
+                                <Settings
+                                    config={config}
+                                    onConfigChange={handleConfigChange}
+                                />
                             </div>
                         </div>
-                    </div>
-
-                    <div className="scan-section">
-                        <Scanner config={config} onOrderScanned={handleOrderScanned} isScanning={isScanning} />
-                    </div>
-
-                    <div className="main-content">
-                        {/* Left Panel: Order List */}
-                        <div className="panel order-list-panel">
-                            <div className="panel-header">
-                                <h3>Order List ({orders.length})</h3>
-                                <div className="panel-icon">📋</div>
+                    ) : (
+                        <>
+                            <div className="app-header">
+                                <h1 className="app-title">Scan Barcode & Manage Orders</h1>
+                                <div className="header-controls">
+                                    <div className="total-orders">Total orders: {totalOrders}</div>
+                                    <div className="header-buttons">
+                                        <button
+                                            className="action-btn"
+                                            onClick={handleAddToInventory}
+                                            disabled={orders.length === 0}
+                                            title="Add all orders to inventory"
+                                        >
+                                            📦 Add to Inventory
+                                        </button>
+                                        <button
+                                            className="action-btn"
+                                            onClick={handleClearList}
+                                            disabled={orders.length === 0}
+                                            title="Clear all orders from list"
+                                        >
+                                            🗑️ Clear List
+                                        </button>
+                                        <button
+                                            className="settings-btn"
+                                            onClick={() => setShowSettings(!showSettings)}
+                                        >
+                                            ⚙️ Settings
+                                        </button>
+                                        <button
+                                            className="settings-btn"
+                                            onClick={() => setShowBarTenderSettings(!showBarTenderSettings)}
+                                        >
+                                            🏷️ BarTender
+                                        </button>
+                                        <button
+                                            className="logout-btn"
+                                            onClick={handleLogout}
+                                            title="Đăng xuất"
+                                        >
+                                            🚪 Logout
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
-                            <div className="panel-content">
-                                {Object.entries(groupedOrders).length > 0 ? (
-                                    <div className="order-groups">
-                                        {Object.entries(groupedOrders).map(([orderId, orderItems]) => {
-                                            console.log(groupedOrders)
-                                            const firstItem = orderItems[0]
-                                            console.log(orderItems)
-                                            const totalItems = orderItems.length
-                                            const totalQuantity = orderItems.reduce((sum, item) => sum + item.quantity, 0)
-                                            // total_quantity từ API chứa tổng số items trong đơn hàng (total_items_in_order)
-                                            const totalItemsInOrder = firstItem.total_quantity || totalItems || 1
 
-                                            return (
-                                                <div key={orderId} className="order-group">
-                                                    <div className="order-group-header compact-grid">
-                                                        <div className="order-info">
-                                                            <h4>Order #{firstItem.origin_id || orderId}</h4>
-                                                            <div className="customer-info">
-                                                                <strong>{firstItem.customer_name || 'Unknown Customer'}</strong>
-                                                            </div>
-                                                        </div>
-                                                        <div className="order-meta">
-                                                            <div className="order-stats">
-                                                                <span className="item-count">{totalItems}/{totalItemsInOrder} items</span>
-                                                                <span className="quantity-count">Qty: {totalQuantity}</span>
-                                                                <span className="platform">{firstItem.platform}</span>
-                                                            </div>
-                                                            <div className="shipping-info">
-                                                                📍 {firstItem.shipping_city}, {firstItem.shipping_state} {firstItem.shipping_zip}
-                                                            </div>
-                                                        </div>
-                                                    </div>
+                            <div className="scan-section">
+                                <Scanner config={config} onOrderScanned={handleOrderScanned} isScanning={isScanning} />
+                            </div>
 
-                                                    <div className="order-items">
-                                                        {orderItems.map((order) => (
-                                                            <div
-                                                                key={order.id}
-                                                                className={`order-item ${selectedOrder?.id === order.id ? 'selected' : ''}`}
-                                                                onClick={() => setSelectedOrder(order)}
-                                                            >
-                                                                <div className="item-info">
-                                                                    <div className="task-code">
+                            <div className="main-content">
+                                {/* Left Panel: Order List */}
+                                <div className="panel order-list-panel">
+                                    <div className="panel-header">
+                                        <h3>Order List ({orders.length})</h3>
+                                        <div className="panel-icon">📋</div>
+                                        {selectedOrder && (
+                                            <div className="keyboard-hint">
+                                                💡 Nhấn <kbd>Space</kbd> để xóa item đang chọn
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="panel-content">
+                                        {Object.entries(groupedOrders).length > 0 ? (
+                                            <div className="order-groups">
+                                                {Object.entries(groupedOrders)
+                                                    .sort(([, itemsA], [, itemsB]) => {
+                                                        // Sort groups by the newest scan time of any item in the group
+                                                        if (!Array.isArray(itemsA) || !Array.isArray(itemsB)) {
+                                                            return 0
+                                                        }
+                                                        const maxTimeA = Math.max(...itemsA.map(item => item.scanTime || 0))
+                                                        const maxTimeB = Math.max(...itemsB.map(item => item.scanTime || 0))
+                                                        return maxTimeB - maxTimeA // Newest first
+                                                    })
+                                                    .map(([orderId, orderItems]) => {
+                                                        if (!Array.isArray(orderItems) || orderItems.length === 0) {
+                                                            return null
+                                                        }
+                                                        const firstItem = orderItems[0]
+                                                        if (!firstItem) {
+                                                            return null
+                                                        }
+                                                        const totalItems = orderItems.length
+                                                        const totalQuantity = orderItems.reduce((sum, item) => sum + (item.quantity || 0), 0)
+                                                        // total_quantity từ API chứa tổng số items trong đơn hàng (total_items_in_order)
+                                                        const totalItemsInOrder = firstItem?.total_quantity || totalItems || 1
+
+                                                        return (
+                                                            <div key={orderId} className="order-group">
+                                                                <div className="order-group-header compact-grid">
+                                                                    <div className="order-info">
+                                                                        <h4>Order #{firstItem.origin_id || orderId}</h4>
+                                                                        <div className="customer-info">
+                                                                            <strong>{firstItem.customer_name || 'Unknown Customer'}</strong>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="order-meta">
+                                                                        <div className="order-stats">
+                                                                            <span className="item-count">{totalItems}/{totalItemsInOrder} items</span>
+                                                                            <span className="quantity-count">Qty: {totalQuantity}</span>
+                                                                            <span className="platform">{firstItem.platform}</span>
+                                                                        </div>
+                                                                        <div className="shipping-info">
+                                                                            📍 {firstItem.shipping_city}, {firstItem.shipping_state} {firstItem.shipping_zip}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="order-items">
+                                                                    {orderItems.map((order) => (
+                                                                        <div
+                                                                            key={order.id}
+                                                                            className={`order-item ${selectedOrder?.id === order.id ? 'selected' : ''}`}
+                                                                            onClick={() => setSelectedOrder(order)}
+                                                                        >
+                                                                            <div className="item-info">
+                                                                                {/* <div className="task-code">
                                                                         <strong>{order.task_code_front}</strong>
                                                                         {order.task_code_back && <span className="back-code">+ {order.task_code_back}</span>}
                                                                     </div>
-                                                                    <div className="product-name">{order.product_name_new}</div>
-                                                                    <div className="item-details">
-                                                                        <span className="quantity">Qty: {order.quantity}</span>
-                                                                        <span className="size">{order.size_style}</span>
-                                                                        <span className="price">${order.price}</span>
-                                                                    </div>
-                                                                    {/* <div className="status-info">
+                                                                    <div className="product-name">{order.product_name_new}</div> */}
+                                                                                <div className="item-details">
+                                                                                    <span className="quantity">Task Code: {order.task_code_front}</span>
+                                                                                    <span className="quantity">Qty: {order.quantity}</span>
+                                                                                    <span className="price">${order.price}</span>
+                                                                                    <span className="status-code">{order.status_code_string}</span>
+                                                                                </div>
+                                                                                {/* <div className="status-info">
                                                                         <span className={`status ${order.status}`}>{order.status}</span>
                                                                         <span className="status-code">{order.status_code_string}</span>
                                                                     </div> */}
+                                                                            </div>
+                                                                            <button
+                                                                                className="remove-order"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation()
+                                                                                    // Xác nhận trước khi xóa
+                                                                                    if (window.confirm(`Bạn có chắc muốn xóa item "${order.task_code_front}"?`)) {
+                                                                                        handleRemoveOrder(order.id)
+                                                                                    }
+                                                                                }}
+                                                                                title="Remove order from list"
+                                                                            >
+                                                                                🗑️
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
                                                                 </div>
-                                                                <button
-                                                                    className="remove-order"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation()
-                                                                        handleRemoveOrder(order.id)
-                                                                    }}
-                                                                    title="Remove order from list"
-                                                                >
-                                                                    🗑️
-                                                                </button>
                                                             </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )
-                                        })}
+                                                        )
+                                                    })
+                                                    .filter(Boolean)}
+                                            </div>
+                                        ) : (
+                                            <div className="empty-state">
+                                                <div className="empty-icon">📦</div>
+                                                <p>No orders scanned yet</p>
+                                                <p>Scan a barcode to get started</p>
+                                            </div>
+                                        )}
                                     </div>
-                                ) : (
-                                    <div className="empty-state">
-                                        <div className="empty-icon">📦</div>
-                                        <p>No orders scanned yet</p>
-                                        <p>Scan a barcode to get started</p>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
+                                </div>
 
-                        {/* Right Panel: Order Details & Image */}
-                        <div className="panel image-panel">
-                            <div className="panel-header">
-                                <h3>Product Image</h3>
-                                <div className="panel-icon">🖼️</div>
-                            </div>
-                            <div className="panel-content">
-                                {selectedOrder ? (
-                                    <OrderView config={config} order={selectedOrder} showImageOnly={true} />
-                                ) : (
-                                    <div className="empty-state">
-                                        <div className="empty-icon">📦</div>
-                                        <p>Select an order to view image</p>
+                                {/* Right Panel: Order Details & Image */}
+                                <div className="panel image-panel">
+                                    <div className="panel-header">
+                                        <h3>Product Image</h3>
+                                        <div className="panel-icon">🖼️</div>
                                     </div>
-                                )}
+                                    <div className="panel-content">
+                                        {selectedOrder ? (
+                                            <OrderView config={config} order={selectedOrder} showImageOnly={true} />
+                                        ) : (
+                                            <div className="empty-state">
+                                                <div className="empty-icon">📦</div>
+                                                <p>Select an order to view image</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
-                        </div>
+
+                            {showBarTenderSettings && (
+                                <BarTenderSettings onClose={() => setShowBarTenderSettings(false)} />
+                            )}
+                        </>
+                    )}
+
+                    <div className="app-footer">
+                        <p>Design and Developed by the Dev Department at iSuccess Company.</p>
                     </div>
 
-                    {showBarTenderSettings && (
-                        <BarTenderSettings onClose={() => setShowBarTenderSettings(false)} />
-                    )}
+                    {/* Notification Container */}
+                    <div className="notification-container">
+                        {notifications.map(notification => (
+                            <Notification
+                                key={notification.id}
+                                message={notification.message}
+                                type={notification.type}
+                                onClose={() => removeNotification(notification.id)}
+                            />
+                        ))}
+                    </div>
                 </>
             )}
-
-            <div className="app-footer">
-                <p>Design and Developed by the Dev Department at iSuccess Company.</p>
-            </div>
-
-            {/* Notification Container */}
-            <div className="notification-container">
-                {notifications.map(notification => (
-                    <Notification
-                        key={notification.id}
-                        message={notification.message}
-                        type={notification.type}
-                        onClose={() => removeNotification(notification.id)}
-                    />
-                ))}
-            </div>
         </div>
     )
 }

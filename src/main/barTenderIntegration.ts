@@ -199,6 +199,24 @@ export class BarTenderIntegration {
             // Ensure file path ends with .xlsx
             const validPath = filePath.endsWith('.xlsx') ? filePath : filePath + '.xlsx'
 
+            // Clean up any existing .xls files in the export directory before writing
+            try {
+                const filesInDir = fs.readdirSync(dir)
+                for (const name of filesInDir) {
+                    if (name.toLowerCase().endsWith('.xls')) {
+                        const full = path.join(dir, name)
+                        try {
+                            fs.unlinkSync(full)
+                            console.log(`Deleted old Excel file: ${full}`)
+                        } catch (delErr: any) {
+                            console.warn(`Could not delete file ${full}:`, delErr?.message || delErr)
+                        }
+                    }
+                }
+            } catch (cleanErr: any) {
+                console.warn('Failed to clean .xls files in directory:', dir, '-', cleanErr?.message || cleanErr)
+            }
+
             // Check if file exists to read existing data
             let existingData: any[] = []
             if (fs.existsSync(validPath)) {
@@ -241,6 +259,15 @@ export class BarTenderIntegration {
             // Write to file
             const xlsPath = validPath.replace(/\.xlsx$/i, '.xls')
             XLSX.writeFile(workbook, xlsPath, { bookType: 'xls' })
+
+            // Also export a parallel file named setting_print.xls in the same directory
+            try {
+                const settingPrintPath = path.join(path.dirname(xlsPath), 'setting_print.xls')
+                XLSX.writeFile(workbook, settingPrintPath, { bookType: 'xls' })
+                console.log(`Data also exported to: ${settingPrintPath}`)
+            } catch (dupErr: any) {
+                console.warn('Failed to write duplicate setting_print.xls:', dupErr?.message || dupErr)
+            }
 
             console.log(`Data exported to Excel: ${xlsPath}`)
             console.log('Exported data:', excelData)

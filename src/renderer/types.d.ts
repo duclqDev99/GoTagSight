@@ -1,9 +1,22 @@
+/// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+    readonly VITE_API_BASE_URL: string
+    readonly VITE_API_VERSION: string
+    readonly VITE_AUTH_ENDPOINT: string
+}
+
+interface ImportMeta {
+    readonly env: ImportMetaEnv
+}
+
 declare global {
     interface Window {
         electronAPI: {
             getOrders: (code: string) => Promise<{ orders: OrderDetail[], totalFound: number, validOrders: number }>
             updateOrderStatus: (orderId: number, status: string, notes?: string) => Promise<boolean>
             updateOrderStatusCode: (orderId: number, statusCodeString: string) => Promise<boolean>
+            updateOrderStatusCodes: (ids: number[], statusCodeString: string) => Promise<boolean>
             getConfig: () => Promise<any>
             setConfig: (config: any) => Promise<void>
             selectFolder: () => Promise<string>
@@ -19,6 +32,7 @@ declare global {
             getBarTenderConfig: () => Promise<any>
             setBarTenderConfig: (config: any) => Promise<boolean>
             exportOrderToExcel: (order: any, exportFolder: string) => Promise<any>
+            setAuthToken: (token: string | null) => Promise<boolean>
         }
         Quagga: any
     }

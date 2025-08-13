@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Cập nhật Token - GoTagSight</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .token-info {
+            background: #e8f5e8;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border-left: 4px solid #4CAF50;
+        }
+
+        .token-info code {
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+            margin-bottom: 15px;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            display: none;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .steps {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+
+        .steps h3 {
+            margin-top: 0;
+            color: #495057;
+        }
+
+        .steps ol {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+        .steps li {
+            margin-bottom: 8px;
+            color: #6c757d;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🔄 Cập nhật Token</h1>
+
+        <div class="token-info">
+            <strong>Token mới:</strong> <code
+                id="tokenDisplay">CFWrVr3n2NX8cTV0zYydDEXycvq0g9ruVlfJuIB1MiL0872qb4g0TVCJk1cG</code>
+            <br><small>Token này đã được test và hoạt động tốt với API production.</small>
+        </div>
+
+        <button onclick="updateToken()" id="updateBtn">🔄 Cập nhật Token</button>
+        <button onclick="testToken()" id="testBtn">🧪 Test Token</button>
+
+        <div id="result" class="result"></div>
+
+        <div class="steps">
+            <h3>📋 Hướng dẫn sử dụng:</h3>
+            <ol>
+                <li>Nhấn nút "Cập nhật Token" để lưu token mới</li>
+                <li>Nhấn nút "Test Token" để kiểm tra token có hoạt động không</li>
+                <li>Nếu thành công, hãy thử lại chức năng "Add to Inventory" trong ứng dụng</li>
+                <li>Nếu vẫn không được, hãy đăng nhập lại trong ứng dụng</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        const FRESH_TOKEN = 'CFWrVr3n2NX8cTV0zYydDEXycvq0g9ruVlfJuIB1MiL0872qb4g0TVCJk1cG';
+
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = message;
+            resultDiv.className = `result ${type}`;
+            resultDiv.style.display = 'block';
+        }
+
+        async function updateToken() {
+            const updateBtn = document.getElementById('updateBtn');
+            const testBtn = document.getElementById('testBtn');
+
+            updateBtn.disabled = true;
+            updateBtn.textContent = '⏳ Đang cập nhật...';
+
+            try {
+                // Cập nhật localStorage
+                localStorage.setItem('authToken', FRESH_TOKEN);
+                localStorage.setItem('user', JSON.stringify({ email: 'minhn.it@isuccesscorp.com' }));
+
+                // Cập nhật trong main process (nếu có electronAPI)
+                if (window.electronAPI) {
+                    const result = await window.electronAPI.setAuthToken(FRESH_TOKEN);
+                    if (result) {
+                        showResult(`
+                            <h3>✅ Token đã được cập nhật thành công!</h3>
+                            <p>Token mới đã được lưu vào:</p>
+                            <ul>
+                                <li>localStorage</li>
+                                <li>Main process (Electron)</li>
+                            </ul>
+                            <p><strong>Bây giờ hãy thử lại chức năng "Add to Inventory" trong ứng dụng!</strong></p>
+                        `, 'success');
+                    } else {
+                        showResult(`
+                            <h3>⚠️ Cập nhật một phần</h3>
+                            <p>Token đã được lưu vào localStorage nhưng không thể cập nhật trong main process.</p>
+                            <p>Hãy thử đăng nhập lại trong ứng dụng.</p>
+                        `, 'warning');
+                    }
+                } else {
+                    showResult(`
+                        <h3>⚠️ Electron API không khả dụng</h3>
+                        <p>Token chỉ được lưu vào localStorage.</p>
+                        <p>Hãy đăng nhập lại trong ứng dụng để cập nhật token trong main process.</p>
+                    `, 'warning');
+                }
+            } catch (error) {
+                showResult(`
+                    <h3>❌ Lỗi khi cập nhật token</h3>
+                    <p>Chi tiết lỗi: ${error.message}</p>
+                    <p>Hãy thử đăng nhập lại trong ứng dụng.</p>
+                `, 'error');
+            } finally {
+                updateBtn.disabled = false;
+                updateBtn.textContent = '🔄 Cập nhật Token';
+            }
+        }
+
+        async function testToken() {
+            const testBtn = document.getElementById('testBtn');
+
+            testBtn.disabled = true;
+            testBtn.textContent = '⏳ Đang test...';
+
+            try {
+                // Test token với API production
+                const response = await fetch('https://production.trackingis.info/api/v2/order-details/update-status-code', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${FRESH_TOKEN}`,
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': ''
+                    },
+                    body: JSON.stringify({
+                        status_code_string: "C1F1R1P1E1V1I0",
+                        ids: [511133]
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.status === true) {
+                    showResult(`
+                        <h3>✅ Token test thành công!</h3>
+                        <p>API response: ${data.message}</p>
+                        <p>Order updated: ${data.data?.orderDetail || 'N/A'}</p>
+                        <p><strong>Token hoạt động tốt với API production!</strong></p>
+                    `, 'success');
+                } else {
+                    showResult(`
+                        <h3>❌ Token test thất bại</h3>
+                        <p>Status: ${response.status}</p>
+                        <p>Response: ${JSON.stringify(data)}</p>
+                        <p>Token có thể đã hết hạn hoặc không hợp lệ.</p>
+                    `, 'error');
+                }
+            } catch (error) {
+                showResult(`
+                    <h3>❌ Lỗi khi test token</h3>
+                    <p>Chi tiết lỗi: ${error.message}</p>
+                    <p>Không thể kết nối đến API production.</p>
+                `, 'error');
+            } finally {
+                testBtn.disabled = false;
+                testBtn.textContent = '🧪 Test Token';
+            }
+        }
+
+        // Hiển thị token ngắn gọn
+        document.getElementById('tokenDisplay').textContent = FRESH_TOKEN.substring(0, 20) + '...';
+    </script>
+</body>
+
+</html>

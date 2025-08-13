@@ -7,6 +7,7 @@ import { BarTenderIntegration } from './barTenderIntegration'
 import { ApiService } from './api'
 
 let mainWindow: BrowserWindow | null = null
+let apiService: ApiService | null = null
 
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -84,12 +85,51 @@ ipcMain.handle('get-orders', async (event, taskCode: string) => {
             return { orders: [], totalFound: 0, validOrders: 0 }
         }
 
-        const apiService = new ApiService(config.apiConfig)
+        // Create or update API service
+        if (!apiService) {
+            apiService = new ApiService(config.apiConfig)
+        }
+
         const result = await apiService.searchOrders(taskCode)
         return result
     } catch (error) {
         console.error('Failed to get orders:', error)
         return { orders: [], totalFound: 0, validOrders: 0 }
+    }
+})
+
+// Authentication handlers
+ipcMain.handle('set-auth-token', async (event, token: string | null) => {
+    try {
+        console.log('=== DEBUG: Setting auth token in main process ===')
+        console.log('Token received:', token ? `${token.substring(0, 20)}...` : 'null')
+
+        const config = configManager.getConfig()
+        if (!config || !config.apiConfig) {
+            console.error('No config or apiConfig found')
+            return false
+        }
+
+        // Always create a new API service instance to ensure clean state
+        console.log('Creating new ApiService instance')
+        apiService = new ApiService(config.apiConfig)
+
+        // Set authentication token
+        apiService.setAuthToken(token)
+        console.log('✅ Token set successfully in ApiService')
+
+        // Verify token is set
+        if (apiService.hasAuthToken()) {
+            console.log('✅ Token verification: Token is properly set')
+        } else {
+            console.error('❌ Token verification: Token is not set')
+            return false
+        }
+
+        return true
+    } catch (error) {
+        console.error('Failed to set auth token:', error)
+        return false
     }
 })
 
@@ -119,6 +159,42 @@ ipcMain.handle('update-order-status-code', async (event, orderId: number, status
         return await apiService.updateOrderStatusCode(orderId, statusCodeString)
     } catch (error) {
         console.error('Failed to update order status code:', error)
+        return false
+    }
+})
+
+ipcMain.handle('update-order-status-codes', async (event, ids: number[], statusCodeString: string) => {
+    try {
+        console.log('=== DEBUG: update-order-status-codes called ===')
+        console.log('IDs:', ids)
+        console.log('Status code string:', statusCodeString)
+
+        const config = configManager.getConfig()
+        if (!config || !config.apiConfig) {
+            console.error('No config or apiConfig found')
+            return false
+        }
+
+        // Ensure API service exists and has token
+        if (!apiService) {
+            console.log('Creating new ApiService instance')
+            apiService = new ApiService(config.apiConfig)
+        } else {
+            console.log('Using existing ApiService instance')
+        }
+
+        // Check if token is set
+        if (!apiService.hasAuthToken()) {
+            console.error('❌ No auth token set in ApiService')
+            return false
+        }
+
+        console.log('✅ Calling ApiService.updateOrderStatusCodes')
+        const result = await apiService.updateOrderStatusCodes(ids, statusCodeString)
+        console.log('API call result:', result)
+        return result
+    } catch (error) {
+        console.error('Failed to update order status codes:', error)
         return false
     }
 })

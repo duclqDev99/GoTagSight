@@ -7,6 +7,9 @@ interface ApiConfig {
     username?: string
     password?: string
     apiKey?: string
+    // API riêng cho update operations
+    updateApiBaseURL?: string
+    updateApiKey?: string
 }
 
 interface AppConfig {
@@ -18,6 +21,7 @@ interface OrderDetail {
     id: number
     order_id: number
     origin_id: number
+    scanTime?: number // Thời gian scan để sắp xếp
     task_code: string
     task_code_front: string
     task_code_back: string

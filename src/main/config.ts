@@ -4,6 +4,39 @@ import * as path from 'path'
 import { app } from 'electron'
 import { ApiConfig } from './api'
 
+// Load environment variables from .env file
+function loadEnvConfig() {
+    try {
+        const envPath = path.join(process.cwd(), '.env')
+        if (fs.existsSync(envPath)) {
+            const envContent = fs.readFileSync(envPath, 'utf8')
+            const envVars: { [key: string]: string } = {}
+
+            envContent.split('\n').forEach(line => {
+                const [key, ...valueParts] = line.split('=')
+                if (key && valueParts.length > 0) {
+                    envVars[key.trim()] = valueParts.join('=').trim()
+                }
+            })
+
+            // Set environment variables
+            Object.keys(envVars).forEach(key => {
+                if (!process.env[key]) {
+                    process.env[key] = envVars[key]
+                }
+            })
+
+            console.log('✅ Environment variables loaded from .env')
+            console.log('VITE_API_BASE_URL:', process.env.VITE_API_BASE_URL)
+        }
+    } catch (error) {
+        console.error('Failed to load .env file:', error)
+    }
+}
+
+// Load environment variables
+loadEnvConfig()
+
 export interface DatabaseConfig {
     host: string
     port: number
@@ -88,13 +121,13 @@ class ConfigManager {
                 tableName: 'order_details'
             },
             apiConfig: {
-                baseURL: '',
+                baseURL: process.env.VITE_API_BASE_URL || 'http://localhost:8000',
                 timeout: 10000,
                 username: '',
                 password: '',
                 environment: 'development',
                 environmentUrls: {
-                    development: '',
+                    development: process.env.VITE_API_BASE_URL || 'http://localhost:8000',
                     staging: '',
                     production: '',
                     custom: ''
@@ -253,14 +286,14 @@ class ConfigManager {
                     tableName: 'order_details'
                 },
                 apiConfig: {
-                    baseURL: '',
+                    baseURL: process.env.VITE_API_BASE_URL || 'http://localhost:8000',
                     timeout: 10000,
                     username: '',
                     password: '',
                     apiKey: '',
                     environment: 'development',
                     environmentUrls: {
-                        development: '',
+                        development: process.env.VITE_API_BASE_URL || 'http://localhost:8000',
                         staging: '',
                         production: '',
                         custom: ''

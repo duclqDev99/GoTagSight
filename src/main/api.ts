@@ -13,12 +13,16 @@ export interface ApiConfig {
         production?: string
         custom?: string
     }
+    // API riêng cho update operations
+    updateApiBaseURL?: string
+    updateApiKey?: string
 }
 
 export interface OrderDetail {
     id: number
     order_id: number
     origin_id: number
+    scanTime?: number // Thời gian scan để sắp xếp
     task_code: string
     task_code_front: string
     task_code_back: string
@@ -57,12 +61,14 @@ export interface OrderDetail {
 
 export class ApiService {
     private client: AxiosInstance
+    private updateClient: AxiosInstance
     private config: ApiConfig
+    private authToken: string | null = null
 
     constructor(config: ApiConfig) {
         this.config = config
 
-        // Tạo headers object
+        // Tạo headers object cho search API
         const headers: any = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
@@ -98,12 +104,56 @@ export class ApiService {
             }
         })
 
+        // Tạo client riêng cho update API
+        const updateHeaders: any = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'User-Agent': 'GoTagSight/1.0.0'
+        }
+
+        if (config.updateApiKey) {
+            const updateToken = config.updateApiKey.startsWith('Bearer ') ? config.updateApiKey : `Bearer ${config.updateApiKey}`
+            updateHeaders.Authorization = updateToken
+        }
+        console.log('config.updateApiBaseURL', config.updateApiBaseURL)
+        console.log('config.baseURL', config.baseURL)
+        this.updateClient = axios.create({
+            baseURL: config.updateApiBaseURL || config.baseURL,
+            timeout: config.timeout || 10000,
+            headers: updateHeaders,
+            validateStatus: (status) => status >= 200 && status < 500,
+            withCredentials: false
+        })
+
         console.log('ApiService created with config:', {
             baseURL: config.baseURL,
+            updateApiBaseURL: config.updateApiBaseURL,
             hasApiKey: !!config.apiKey,
+            hasUpdateApiKey: !!config.updateApiKey,
             hasUsername: !!config.username,
             timeout: config.timeout
         })
+    }
+
+    // Method to set authentication token
+    setAuthToken(token: string | null) {
+        this.authToken = token
+
+        if (token) {
+            // Update headers for both clients
+            this.client.defaults.headers.common['Authorization'] = `Bearer ${token}`
+            this.updateClient.defaults.headers.common['Authorization'] = `Bearer ${token}`
+            console.log('Authentication token set for API service')
+        } else {
+            // Remove auth headers
+            delete this.client.defaults.headers.common['Authorization']
+            delete this.updateClient.defaults.headers.common['Authorization']
+            console.log('Authentication token removed from API service')
+        }
+    }
+
+    hasAuthToken(): boolean {
+        return this.authToken !== null && this.authToken.trim() !== ''
     }
 
     private isMeili(): boolean {
@@ -221,156 +271,123 @@ export class ApiService {
 
     async searchOrders(taskCode: string): Promise<{ orders: OrderDetail[], totalFound: number, validOrders: number }> {
         try {
-            console.log('Searching orders with task_code:', taskCode)
+            console.log('=== DEBUG: searchOrders START ===')
+            console.log('Task code:', taskCode)
+            console.log('Current config baseURL:', this.config.baseURL)
+            console.log('Current config apiKey:', this.config.apiKey ? '***SET***' : 'NOT SET')
 
-            if (this.isMeili()) {
-                const body = {
-                    q: '',
-                    filter: `task_code_front_prefix = "${taskCode}"`,
-                    sort: ['created_at:desc'],
-                    attributesToRetrieve: [
-                        'id',
-                        'order_id',
-                        'quantity',
-                        'order',
-                        'origin_id',
-                        'task_code_front_prefix',
-                        'total_items_in_order',
-                        'task_code_front',
-                        'task_code_back',
-                        'created_at'
-                    ],
-                    hitsPerPage: 10,
-                    page: 1
+            // Gán cứng baseURL cho MeiliSearch
+            const meiliBaseURL = 'http://103.139.203.10:7700'
+            console.log('Hardcoded MeiliSearch baseURL:', meiliBaseURL)
+
+            // Tạo client tạm thời với baseURL MeiliSearch
+            const tempClient = axios.create({
+                baseURL: meiliBaseURL,
+                timeout: this.config.timeout || 10000,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
                 }
-
-                const response = await this.client.post('/indexes/order_details/search', body)
-                const data = response.data
-                const hits = Array.isArray(data?.hits) ? data.hits : []
-
-                const transformedOrders: OrderDetail[] = hits.map((item: any) => {
-                    const order = item.order || {}
-                    const orderDetail = item.order?.order_details?.[0] || {}
-
-                    console.log('API Debug - item:', JSON.stringify(item, null, 2))
-                    console.log('API Debug - order:', JSON.stringify(order, null, 2))
-                    console.log('API Debug - origin_id from order:', order.origin_id)
-                    console.log('API Debug - origin_id from item:', item.origin_id)
-
-                    return {
-                        id: item.id ?? item.order_id ?? 0,
-                        order_id: item.order_id ?? order.id ?? 0,
-                        origin_id: order.origin_id ?? item.origin_id ?? 0,
-                        task_code: item.task_code ?? item.task_code_front ?? '',
-                        task_code_front: item.task_code_front ?? '',
-                        task_code_back: item.task_code_back ?? '',
-                        product_name_new: item.product_name_new ?? orderDetail.product_name_new ?? '',
-                        customer_name: order.customer_name ?? '',
-                        description_task: item.description_task ?? orderDetail.description_task ?? '',
-                        description_task_front: item.description_task_front ?? orderDetail.description_task_front ?? '',
-                        description_task_back: item.description_task_back ?? orderDetail.description_task_back ?? '',
-                        quantity: item.quantity ?? orderDetail.quantity ?? 1,
-                        total_quantity: item.total_items_in_order ?? order.total_item ?? order.total_quantity ?? 1,
-                        status: item.status ?? order.status ?? '',
-                        status_code_string: item.status_code_string ?? orderDetail.status_code_string ?? '',
-                        price: parseFloat(item.price ?? orderDetail.price ?? order.total ?? '0'),
-                        score_task: parseFloat(item.score_task ?? orderDetail.score_task ?? '0'),
-                        score_task_front: parseFloat(item.score_task_front ?? orderDetail.score_task_front ?? '0'),
-                        score_task_back: parseFloat(item.score_task_back ?? orderDetail.score_task_back ?? '0'),
-                        condition: item.condition ?? orderDetail.condition ?? '',
-                        size_style: item.size_style ?? orderDetail.size_style ?? '',
-                        pack: item.pack ?? orderDetail.pack ?? '',
-                        color: item.color ?? orderDetail.color ?? '',
-                        material: item.material ?? orderDetail.material ?? '',
-                        layout_style: item.layout_style ?? orderDetail.layout_style ?? '',
-                        personalization: item.personalization ?? orderDetail.personalization ?? '',
-                        link: item.link ?? orderDetail.link ?? '',
-                        created_at: item.created_at ?? order.created_at ?? '',
-                        updated_at: item.updated_at ?? order.updated_at ?? '',
-                        line_in_order: item.line_in_order ?? 1,
-                        line_in_quantity: item.line_in_quantity ?? 1,
-                        shipping_address: order.shipping_address ?? '',
-                        shipping_city: order.shipping_city ?? '',
-                        shipping_state: order.shipping_state ?? '',
-                        shipping_zip: order.shipping_zip ?? '',
-                        platform: order.platform ?? ''
-                    }
-                })
-
-                return {
-                    orders: transformedOrders,
-                    totalFound: data?.totalHits ?? transformedOrders.length,
-                    validOrders: transformedOrders.length
-                }
-            }
-
-            const response = await this.client.post('/order-details/search', {
-                task_code: taskCode,
-                limit: 10
             })
 
-            console.log('API Response:', response.data)
+            console.log('Temp client created with baseURL:', tempClient.defaults.baseURL)
 
-            // Handle the new API response format
-            if (response.data && response.data.success === true) {
-                const orders = response.data.data || []
-                console.log('Found orders:', orders.length)
-
-                // Transform the API response to match our OrderDetail interface
-                const transformedOrders = orders.map(item => {
-                    const orderDetail = item.order?.order_details?.[0] || {}
-                    const order = item.order || {}
-
-                    return {
-                        id: orderDetail.id || item.order_id,
-                        origin_id: order.origin_id || 0,
-                        order_id: item.order_id || order.id, // Thêm order_id
-                        task_code: orderDetail.task_code || item.task_code_front,
-                        task_code_front: orderDetail.task_code_front || item.task_code_front,
-                        task_code_back: orderDetail.task_code_back || item.task_code_back,
-                        product_name_new: orderDetail.product_name_new || '',
-                        customer_name: order.customer_name || '', // Lấy từ order object
-                        description_task: orderDetail.description_task || orderDetail.description_task_front || '',
-                        description_task_front: orderDetail.description_task_front || '',
-                        description_task_back: orderDetail.description_task_back || '',
-                        quantity: orderDetail.quantity || 1,
-                        total_quantity: order.total_quantity || order.total_item || 1, // Tổng số lượng trong order
-                        status: orderDetail.status || order.status || '',
-                        status_code_string: orderDetail.status_code_string || '',
-                        price: parseFloat(orderDetail.price || order.total || '0'),
-                        score_task: parseFloat(orderDetail.score_task || orderDetail.score_task_front || '0'),
-                        score_task_front: parseFloat(orderDetail.score_task_front || '0'),
-                        score_task_back: parseFloat(orderDetail.score_task_back || '0'),
-                        condition: orderDetail.condition || '',
-                        size_style: orderDetail.size_style || '',
-                        pack: orderDetail.pack || '',
-                        color: orderDetail.color || '',
-                        material: orderDetail.material || '',
-                        layout_style: orderDetail.layout_style || '',
-                        personalization: orderDetail.personalization || '',
-                        link: orderDetail.link || '',
-                        created_at: orderDetail.created_at || order.created_at || '',
-                        updated_at: orderDetail.updated_at || order.updated_at || '',
-                        // Thông tin thêm cho grouping
-                        line_in_order: item.line_in_order || 1,
-                        line_in_quantity: item.line_in_quantity || 1,
-                        shipping_address: order.shipping_address || '',
-                        shipping_city: order.shipping_city || '',
-                        shipping_state: order.shipping_state || '',
-                        shipping_zip: order.shipping_zip || '',
-                        platform: order.platform || ''
-                    }
-                })
-
-                return {
-                    orders: transformedOrders,
-                    totalFound: response.data.total || transformedOrders.length,
-                    validOrders: transformedOrders.length
-                }
+            // MeiliSearch không cần auth token, chỉ cần API key nếu có
+            if (this.config.apiKey) {
+                tempClient.defaults.headers.common['Authorization'] = `Bearer ${this.config.apiKey}`
+                console.log('MeiliSearch API key set for search')
+                console.log('Authorization header set:', `Bearer ${this.config.apiKey.substring(0, 10)}...`)
+            } else {
+                console.log('⚠️ No API key found in config')
             }
 
-            console.log('API response format not recognized')
-            return { orders: [], totalFound: 0, validOrders: 0 }
+            // Luôn sử dụng MeiliSearch cho search
+            const body = {
+                q: '',
+                filter: `task_code_front_prefix = "${taskCode}"`,
+                sort: ['created_at:desc'],
+                attributesToRetrieve: [
+                    'id',
+                    'order_id',
+                    'quantity',
+                    'order',
+                    'origin_id',
+                    'task_code_front_prefix',
+                    'total_items_in_order',
+                    'task_code_front',
+                    'task_code_back',
+                    'created_at'
+                ],
+                hitsPerPage: 10,
+                page: 1
+            }
+
+            console.log('=== DEBUG: Making MeiliSearch request ===')
+            console.log('Endpoint:', '/indexes/order_details/search')
+            console.log('Full URL:', `${meiliBaseURL}/indexes/order_details/search`)
+            console.log('Request body:', JSON.stringify(body, null, 2))
+            console.log('Request headers:', JSON.stringify(tempClient.defaults.headers, null, 2))
+
+            const response = await tempClient.post('/indexes/order_details/search', body)
+            const data = response.data
+            const hits = Array.isArray(data?.hits) ? data.hits : []
+
+            const transformedOrders: OrderDetail[] = hits.map((item: any) => {
+                const order = item.order || {}
+                const orderDetail = item.order?.order_details?.[0] || {}
+
+                console.log('API Debug - item:', JSON.stringify(item, null, 2))
+                console.log('API Debug - order:', JSON.stringify(order, null, 2))
+                console.log('API Debug - origin_id from order:', order.origin_id)
+                console.log('API Debug - origin_id from item:', item.origin_id)
+
+                return {
+                    id: item.id ?? item.order_id ?? 0,
+                    order_id: item.order_id ?? order.id ?? 0,
+                    origin_id: order.origin_id ?? item.origin_id ?? 0,
+                    task_code: item.task_code ?? item.task_code_front ?? '',
+                    task_code_front: item.task_code_front ?? '',
+                    task_code_back: item.task_code_back ?? '',
+                    product_name_new: item.product_name_new ?? orderDetail.product_name_new ?? '',
+                    customer_name: order.customer_name ?? '',
+                    description_task: item.description_task ?? orderDetail.description_task ?? '',
+                    description_task_front: item.description_task_front ?? orderDetail.description_task_front ?? '',
+                    description_task_back: item.description_task_back ?? orderDetail.description_task_back ?? '',
+                    quantity: item.quantity ?? orderDetail.quantity ?? 1,
+                    total_quantity: item.total_items_in_order ?? order.total_item ?? order.total_quantity ?? 1,
+                    status: item.status ?? order.status ?? '',
+                    status_code_string: item.status_code_string ?? orderDetail.status_code_string ?? '',
+                    price: parseFloat(item.price ?? orderDetail.price ?? order.total ?? '0'),
+                    score_task: parseFloat(item.score_task ?? orderDetail.score_task ?? '0'),
+                    score_task_front: parseFloat(item.score_task_front ?? orderDetail.score_task_front ?? '0'),
+                    score_task_back: parseFloat(item.score_task_back ?? orderDetail.score_task_back ?? '0'),
+                    condition: item.condition ?? orderDetail.condition ?? '',
+                    size_style: item.size_style ?? orderDetail.size_style ?? '',
+                    pack: item.pack ?? orderDetail.pack ?? '',
+                    color: item.color ?? orderDetail.color ?? '',
+                    material: item.material ?? orderDetail.material ?? '',
+                    layout_style: item.layout_style ?? orderDetail.layout_style ?? '',
+                    personalization: item.personalization ?? orderDetail.personalization ?? '',
+                    link: item.link ?? orderDetail.link ?? '',
+                    created_at: item.created_at ?? order.created_at ?? '',
+                    updated_at: item.updated_at ?? order.updated_at ?? '',
+                    line_in_order: item.line_in_order ?? 1,
+                    line_in_quantity: item.line_in_quantity ?? 1,
+                    shipping_address: order.shipping_address ?? '',
+                    shipping_city: order.shipping_city ?? '',
+                    shipping_state: order.shipping_state ?? '',
+                    shipping_zip: order.shipping_zip ?? '',
+                    platform: order.platform ?? ''
+                }
+            })
+
+            return {
+                orders: transformedOrders,
+                totalFound: data?.totalHits ?? transformedOrders.length,
+                validOrders: transformedOrders.length
+            }
+
+
 
         } catch (error: any) {
             console.error('Failed to search orders:', error)
@@ -407,7 +424,9 @@ export class ApiService {
 
     async updateOrderStatus(orderId: number, status: string, notes?: string): Promise<boolean> {
         try {
-            const response = await this.client.put(`/orders/${orderId}/status`, { status, notes })
+            // Sử dụng updateClient thay vì client chính
+            const client = this.updateClient || this.client
+            const response = await client.put(`/orders/${orderId}/status`, { status, notes })
             if (response.data && typeof response.data.status === 'boolean') {
                 return response.data.status
             }
@@ -420,7 +439,9 @@ export class ApiService {
 
     async updateOrderStatusCode(orderId: number, statusCodeString: string): Promise<boolean> {
         try {
-            const response = await this.client.put(`/orders/${orderId}/status-code`, { status_code_string: statusCodeString })
+            // Sử dụng updateClient thay vì client chính
+            const client = this.updateClient || this.client
+            const response = await client.put(`/orders/${orderId}/status-code`, { status_code_string: statusCodeString })
             if (response.data && typeof response.data.status === 'boolean') {
                 return response.data.status
             }
@@ -428,6 +449,157 @@ export class ApiService {
         } catch (error: any) {
             console.error('Failed to update order status code:', error)
             throw new Error(error.response?.data?.message || error.message)
+        }
+    }
+
+    async updateOrderStatusCodes(ids: number[], statusCodeString: string): Promise<boolean> {
+        try {
+            // Gán cứng baseURL cho production
+            const baseURL = 'https://production.trackingis.info'
+
+            console.log('=== DEBUG: API Configuration ===')
+            console.log('Base URL (HARDCODED):', baseURL)
+            console.log('Auth Token exists:', !!this.authToken)
+            console.log('Auth Token length:', this.authToken ? this.authToken.length : 0)
+            console.log('Auth Token preview:', this.authToken ? `${this.authToken.substring(0, 10)}...` : 'null')
+
+            // Tạo client tạm thời với baseURL gán cứng
+            const tempClient = axios.create({
+                baseURL: baseURL,
+                timeout: this.config.timeout || 10000,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': ''
+                }
+            })
+
+            // Thêm auth token nếu có
+            if (this.authToken) {
+                tempClient.defaults.headers.common['Authorization'] = `Bearer ${this.authToken}`
+                console.log('Authorization header set:', `Bearer ${this.authToken.substring(0, 20)}...`)
+            } else {
+                console.log('WARNING: No auth token available!')
+            }
+
+            // Gửi đúng cấu trúc API như yêu cầu
+            const requestData = {
+                status_code_string: statusCodeString,
+                ids: ids
+            }
+
+            console.log('=== DEBUG: Request Details ===')
+            console.log('Endpoint:', '/api/v2/order-details/update-status-code')
+            console.log('Full URL:', `${baseURL}/api/v2/order-details/update-status-code`)
+            console.log('Request Data:', requestData)
+            console.log('Status Code String:', statusCodeString)
+            console.log('IDs:', ids)
+            console.log('Request Headers:', tempClient.defaults.headers)
+
+            const response = await tempClient.post('/api/v2/order-details/update-status-code', requestData)
+
+            console.log('=== DEBUG: Response Details ===')
+            console.log('Response Status:', response.status)
+            console.log('Response Status Text:', response.statusText)
+            console.log('Response Headers:', response.headers)
+            console.log('Response Data:', response.data)
+            console.log('Response Data Type:', typeof response.data)
+            console.log('Response Data Keys:', response.data ? Object.keys(response.data) : 'null/undefined')
+
+            // Kiểm tra response chi tiết hơn
+            if (response.data) {
+                console.log('Response data exists, checking fields...')
+
+                if (typeof response.data.status === 'boolean') {
+                    console.log('Response has boolean status:', response.data.status)
+                    return response.data.status
+                }
+
+                if (response.data.message) {
+                    console.log('Response has message:', response.data.message)
+                }
+
+                if (response.data.success !== undefined) {
+                    console.log('Response has success field:', response.data.success)
+                    return response.data.success
+                }
+
+                if (response.data.error) {
+                    console.log('Response has error field:', response.data.error)
+                    throw new Error(`API Error: ${response.data.error}`)
+                }
+
+                // Nếu có data nhưng không có field status/success, kiểm tra nội dung
+                if (typeof response.data === 'object' && Object.keys(response.data).length > 0) {
+                    console.log('Response has data but no status/success field, checking if it indicates success...')
+                    // Nếu response có data và không có error, coi như thành công
+                    return true
+                }
+
+                // Nếu response.data là string hoặc number, kiểm tra nội dung
+                if (typeof response.data === 'string') {
+                    console.log('Response data is string:', response.data)
+                    // Nếu là string rỗng hoặc "success", coi như thành công
+                    if (response.data === '' || response.data.toLowerCase().includes('success')) {
+                        return true
+                    }
+                    // Nếu có chứa "error", coi như thất bại
+                    if (response.data.toLowerCase().includes('error')) {
+                        throw new Error(`API Error: ${response.data}`)
+                    }
+                }
+
+                if (typeof response.data === 'number') {
+                    console.log('Response data is number:', response.data)
+                    // Nếu là số 1 hoặc 200, coi như thành công
+                    if (response.data === 1 || response.data === 200) {
+                        return true
+                    }
+                    // Nếu là số 0, coi như thất bại
+                    if (response.data === 0) {
+                        return false
+                    }
+                }
+            }
+
+            // Kiểm tra HTTP status
+            if (response.status >= 200 && response.status < 300) {
+                return true
+            } else {
+                return false
+            }
+        } catch (error: any) {
+            // Tạo error message chi tiết hơn
+            let errorMessage = 'Unknown error occurred'
+
+            if (error.response?.data) {
+                if (error.response.data.message) {
+                    errorMessage = error.response.data.message
+                } else if (error.response.data.error) {
+                    errorMessage = error.response.data.error
+                } else if (typeof error.response.data === 'string') {
+                    errorMessage = error.response.data
+                } else {
+                    errorMessage = `Server error: ${JSON.stringify(error.response.data)}`
+                }
+            } else if (error.message) {
+                errorMessage = error.message
+            }
+
+            // Xử lý các lỗi authentication cụ thể
+            if (error.response?.status === 401) {
+                if (errorMessage.includes('Invalid token') || errorMessage.includes('Unauthorized')) {
+                    errorMessage = 'Token không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại.'
+                }
+            } else if (error.response?.status === 403) {
+                errorMessage = 'Không có quyền truy cập. Vui lòng kiểm tra quyền hạn.'
+            } else if (error.response?.status === 404) {
+                errorMessage = 'API endpoint không tồn tại. Vui lòng kiểm tra cấu hình.'
+            } else if (error.response?.status >= 500) {
+                errorMessage = 'Lỗi server. Vui lòng thử lại sau.'
+            }
+
+            throw new Error(errorMessage)
         }
     }
 }
@@ -441,5 +613,7 @@ export const defaultApiConfig: ApiConfig = {
         staging: '',
         production: '',
         custom: ''
-    }
+    },
+    updateApiBaseURL: '',
+    updateApiKey: ''
 } 

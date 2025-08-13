@@ -13,6 +13,9 @@ interface ApiConfig {
         production?: string
         custom?: string
     }
+    // API riêng cho update operations
+    updateApiBaseURL?: string
+    updateApiKey?: string
 }
 
 interface BarTenderConfig {
@@ -64,7 +67,9 @@ const Settings: React.FC<SettingsProps> = ({ config, onConfigChange }) => {
                     development: 'http://127.0.0.1:8001/api/v2',
                     staging: 'http://staging-api.example.com/api/v2',
                     production: 'http://api.example.com/api/v2'
-                }
+                },
+                updateApiBaseURL: safeConfig.apiConfig?.updateApiBaseURL || '',
+                updateApiKey: safeConfig.apiConfig?.updateApiKey || ''
             },
             imagePath: safeConfig.imagePath || '',
             barTenderConfig: {
@@ -278,6 +283,28 @@ const Settings: React.FC<SettingsProps> = ({ config, onConfigChange }) => {
                         onChange={(e) => handleInputChange('apiConfig', 'apiKey', e.target.value)}
                         placeholder="Enter your Bearer token (e.g., 2c3e90e252e71c8726661d7d3f61ea77...)"
                     />
+                </div>
+
+                <div className="form-group">
+                    <label>Update API Base URL (Optional):</label>
+                    <input
+                        type="text"
+                        value={localConfig.apiConfig.updateApiBaseURL || ''}
+                        onChange={(e) => handleInputChange('apiConfig', 'updateApiBaseURL', e.target.value)}
+                        placeholder="Enter update API base URL (e.g., http://127.0.0.1:8000/api)"
+                    />
+                    <small>Leave empty to use the same API for both search and update operations</small>
+                </div>
+
+                <div className="form-group">
+                    <label>Update API Key (Optional):</label>
+                    <input
+                        type="password"
+                        value={localConfig.apiConfig.updateApiKey || ''}
+                        onChange={(e) => handleInputChange('apiConfig', 'updateApiKey', e.target.value)}
+                        placeholder="Enter update API Bearer token"
+                    />
+                    <small>Leave empty to use the same API key for both search and update operations</small>
                 </div>
 
                 <div className="database-actions">
