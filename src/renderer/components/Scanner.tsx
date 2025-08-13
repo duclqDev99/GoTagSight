@@ -227,6 +227,9 @@ const Scanner: React.FC<ScannerProps> = ({ config, onOrderScanned, isScanning = 
                     </div>
                 )}
             </div>
+            <div className="task-code-list">
+                <p>CXPMLJ - CCSCQQ - CNGDN7 - CAKQAY - CcN33s - YYJJXY</p>
+            </div>
             <div className="keyboard-hint">
                 💡 Nhấn <kbd>Space</kbd> để xóa item đang chọn
             </div>

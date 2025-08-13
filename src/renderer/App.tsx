@@ -216,7 +216,7 @@ function App() {
     useEffect(() => {
         const handleKeyPress = (event: KeyboardEvent) => {
             // Chỉ xử lý khi nhấn phím Space, có item được selected và không có input nào đang focus
-            if (event.code === 'Space' && selectedOrder && document.activeElement?.tagName !== 'INPUT') {
+            if (event.code === 'Space' && selectedOrder) {
                 event.preventDefault() // Ngăn scroll trang
 
                 // Xác nhận xóa item đang selected
@@ -489,6 +489,11 @@ function App() {
 
         // Hiển thị notification với thông tin chi tiết
         const orderInfo = orderToRemove ? `${orderToRemove.task_code_front} (${orderToRemove.customer_name})` : 'Unknown order'
+        //focus to scanner
+        const inputElement = document.querySelector('.code-input') as HTMLInputElement
+        if (inputElement) {
+            inputElement.focus()
+        }
         addNotification(`Đã xóa: ${orderInfo}`, 'info')
     }
 
@@ -703,20 +708,17 @@ function App() {
                                                             <div key={orderId} className="order-group">
                                                                 <div className="order-group-header compact-grid">
                                                                     <div className="order-info">
-                                                                        <h4>Order #{firstItem.origin_id || orderId}</h4>
-                                                                        <div className="customer-info">
-                                                                            <strong>{firstItem.customer_name || 'Unknown Customer'}</strong>
-                                                                        </div>
+                                                                        <h5>#{firstItem.origin_id || orderId} - {firstItem.customer_name || 'Unknown Customer'}</h5>
                                                                     </div>
                                                                     <div className="order-meta">
                                                                         <div className="order-stats">
                                                                             <span className="item-count">{totalItems}/{totalItemsInOrder} items</span>
-                                                                            <span className="quantity-count">Qty: {totalQuantity}</span>
+                                                                            {/* <span className="quantity-count">Qty: {totalQuantity}</span> */}
                                                                             <span className="platform">{firstItem.platform}</span>
                                                                         </div>
-                                                                        <div className="shipping-info">
+                                                                        {/* <div className="shipping-info">
                                                                             📍 {firstItem.shipping_city}, {firstItem.shipping_state} {firstItem.shipping_zip}
-                                                                        </div>
+                                                                        </div> */}
                                                                     </div>
                                                                 </div>
 
@@ -734,7 +736,7 @@ function App() {
                                                                     </div>
                                                                     <div className="product-name">{order.product_name_new}</div> */}
                                                                                 <div className="item-details">
-                                                                                    <span className="quantity">Task Code: {order.task_code_front}</span>
+                                                                                    <span className="task-code">Task Code: {order.task_code_front}</span>
                                                                                     <span className="quantity">Qty: {order.quantity}</span>
                                                                                     <span className="price">${order.price}</span>
                                                                                     <span className="status-code">{order.status_code_string}</span>
