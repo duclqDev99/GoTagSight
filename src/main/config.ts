@@ -62,11 +62,24 @@ export interface BarTenderConfig {
     printMethod?: 'direct' | 'script'
 }
 
+export interface ElasticsearchConfig {
+    enabled: boolean
+    baseURL: string
+    index: string
+    username?: string
+    password?: string
+    searchFields?: string[]
+    size?: number
+    timeout?: number
+    fallbackToFilesystem: boolean
+}
+
 export interface AppConfig {
     database: DatabaseConfig
     apiConfig: ApiConfig // Thêm API config
     imagePath: string
     barTenderConfig: BarTenderConfig
+    elasticsearchConfig?: ElasticsearchConfig
     encryptionKey: string
 }
 
@@ -319,6 +332,64 @@ class ConfigManager {
             this.config.imagePath = imagePath
         }
         this.saveConfig(this.config)
+    }
+
+    // Cập nhật cấu hình Elasticsearch
+    updateElasticsearchConfig(esConfig: ElasticsearchConfig): void {
+        const current = this.loadConfig()
+        if (current) {
+            current.elasticsearchConfig = esConfig
+            this.config = current
+        } else {
+            this.config = {
+                database: {
+                    host: 'localhost',
+                    port: 3306,
+                    user: '',
+                    password: '',
+                    database: '',
+                    tableName: 'order_details'
+                },
+                apiConfig: {
+                    baseURL: process.env.VITE_API_BASE_URL || 'http://localhost:8000',
+                    timeout: 10000,
+                    username: '',
+                    password: '',
+                    apiKey: '',
+                    environment: 'development',
+                    environmentUrls: {
+                        development: process.env.VITE_API_BASE_URL || 'http://localhost:8000',
+                        staging: '',
+                        production: '',
+                        custom: ''
+                    }
+                },
+                imagePath: '',
+                barTenderConfig: {
+                    enabled: false,
+                    method: 'file',
+                    filePath: path.join(process.cwd(), 'print_queue.json'),
+                    excelPath: path.join(process.cwd(), 'bartender_export.xlsx'),
+                    templateName: 'Default',
+                    printQuantity: 1,
+                    autoPrint: false,
+                    bartenderPath: '',
+                    templatePath: '',
+                    printScriptPath: '',
+                    printMethod: 'direct'
+                },
+                elasticsearchConfig: esConfig,
+                encryptionKey: this.encryptionKey
+            }
+        }
+        this.saveConfig(this.config)
+        console.log('Elasticsearch config saved:', esConfig)
+    }
+
+    // Lấy cấu hình Elasticsearch
+    getElasticsearchConfig(): ElasticsearchConfig | null {
+        const config = this.loadConfig()
+        return config?.elasticsearchConfig || null
     }
 
     // Lấy cấu hình database

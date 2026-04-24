@@ -12,9 +12,22 @@ interface ApiConfig {
     updateApiKey?: string
 }
 
+interface ElasticsearchConfig {
+    enabled: boolean
+    baseURL: string
+    index: string
+    username?: string
+    password?: string
+    searchFields?: string[]
+    size?: number
+    timeout?: number
+    fallbackToFilesystem: boolean
+}
+
 interface AppConfig {
     apiConfig: ApiConfig
     imagePath: string
+    elasticsearchConfig?: ElasticsearchConfig
 }
 
 interface OrderDetail {
@@ -64,6 +77,15 @@ interface OrderViewProps {
     showImageOnly?: boolean
 }
 
+interface GalleryItem {
+    id: string
+    name: string
+    path: string
+    ext: string
+    size?: number
+    source: 'elasticsearch' | 'filesystem'
+}
+
 const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showImageOnly = false }) => {
     const [order, setOrder] = useState<OrderDetail | null>(propOrder || null)
     const [loading, setLoading] = useState(false)
@@ -73,6 +95,9 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
     const [imagePath, setImagePath] = useState<string>('')
     const [imageError, setImageError] = useState<string>('')
     const [fileType, setFileType] = useState<string>('')
+    const [gallery, setGallery] = useState<GalleryItem[]>([])
+    const [activeIndex, setActiveIndex] = useState<number>(0)
+    const [isLoadingImage, setIsLoadingImage] = useState<boolean>(false)
 
     useEffect(() => {
         if (propOrder) {
@@ -80,94 +105,138 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
         }
     }, [propOrder])
 
-    // Load image when order changes
+    // Load gallery when order changes
     useEffect(() => {
-        if (order && order.task_code_front && config.imagePath) {
-            loadImage(order.task_code_front)
+        if (order && order.task_code_front) {
+            loadGallery(order.task_code_front)
         }
-        console.log(order)
-    }, [order, config.imagePath])
+    }, [order, config.imagePath, config.elasticsearchConfig?.enabled, config.elasticsearchConfig?.baseURL, config.elasticsearchConfig?.index])
 
-    const loadImage = async (taskCode: string) => {
+    // Load the currently active gallery item's image data
+    useEffect(() => {
+        const item = gallery[activeIndex]
+        if (!item) return
+        renderItem(item)
+    }, [activeIndex, gallery])
+
+    const renderItem = async (item: GalleryItem) => {
+        if (!window.electronAPI) return
+        setIsLoadingImage(true)
+        setImageError('')
+        try {
+            const needsConvert = item.ext === 'ai' || item.ext === 'pdf'
+            const data = needsConvert
+                ? await window.electronAPI.convertFileToImage(item.path)
+                : await window.electronAPI.getImageData(item.path)
+            if (data) {
+                setImagePath(data)
+                setFileType(item.ext)
+                setImageError('')
+            } else {
+                setImagePath('')
+                setImageError(`Failed to load: ${item.name}`)
+            }
+        } catch (err: any) {
+            setImagePath('')
+            setImageError('Failed to load image: ' + (err?.message || err))
+        } finally {
+            setIsLoadingImage(false)
+        }
+    }
+
+    const loadGallery = async (taskCode: string) => {
+        if (!window.electronAPI) return
+
+        setGallery([])
+        setActiveIndex(0)
+        setImagePath('')
+        setImageError('')
+
+        const esEnabled = !!config.elasticsearchConfig?.enabled
+        const fallbackToFs = config.elasticsearchConfig?.fallbackToFilesystem !== false
+
+        // 1) Try Elasticsearch first
+        if (esEnabled) {
+            try {
+                const res = await window.electronAPI.searchImagesByCode(taskCode)
+                if (res?.enabled && res.hits && res.hits.length > 0) {
+                    const items: GalleryItem[] = res.hits.map((h) => ({
+                        id: h.id,
+                        name: h.name,
+                        path: h.path,
+                        ext: h.ext,
+                        size: h.size,
+                        source: 'elasticsearch'
+                    }))
+                    setGallery(items)
+                    setActiveIndex(0)
+                    return
+                }
+                if (!fallbackToFs) {
+                    setImageError(`No results in Elasticsearch for: ${taskCode}`)
+                    return
+                }
+            } catch (err: any) {
+                console.error('ES search error:', err)
+                if (!fallbackToFs) {
+                    setImageError(`ES error: ${err?.message || err}`)
+                    return
+                }
+            }
+        }
+
+        // 2) Fallback to local folder scan (existing behavior)
         if (!config.imagePath) {
             setImageError('Image path not configured')
             return
         }
 
+        const fsItems: GalleryItem[] = []
         try {
-            if (window.electronAPI) {
-                // First try exact match
-                const extensions = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'ai', 'pdf']
-                let foundImage = false
-
-                for (const ext of extensions) {
-                    const imageFile = `${config.imagePath}/${taskCode}.${ext}`
-                    try {
-                        const exists = await window.electronAPI.checkFileExists(imageFile)
-                        if (exists) {
-                            let imageData
-                            if (ext === 'ai' || ext === 'pdf') {
-                                // Convert AI/PDF to image
-                                imageData = await window.electronAPI.convertFileToImage(imageFile)
-                            } else {
-                                // Use original file for images
-                                imageData = await window.electronAPI.getImageData(imageFile)
-                            }
-
-                            if (imageData) {
-                                setImagePath(imageData)
-                                setFileType(ext)
-                                setImageError('')
-                                foundImage = true
-                                break
-                            }
-                        }
-                    } catch (err) {
-                        // Continue to next extension
-                    }
+            const extensions = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'ai', 'pdf']
+            for (const ext of extensions) {
+                const imageFile = `${config.imagePath}/${taskCode}.${ext}`
+                const exists = await window.electronAPI.checkFileExists(imageFile)
+                if (exists) {
+                    fsItems.push({
+                        id: imageFile,
+                        name: `${taskCode}.${ext}`,
+                        path: imageFile,
+                        ext,
+                        source: 'filesystem'
+                    })
                 }
+            }
 
-                // If exact match not found, try pattern matching
-                if (!foundImage) {
-                    const files = await window.electronAPI.listFiles(config.imagePath)
-                    if (files && files.length > 0) {
-                        // Look for files that start with taskCode
-                        const matchingFile = files.find(file =>
+            if (fsItems.length === 0) {
+                const files = await window.electronAPI.listFiles(config.imagePath)
+                if (files && files.length > 0) {
+                    files
+                        .filter((file) =>
                             file.toLowerCase().startsWith(taskCode.toLowerCase()) &&
                             /\.(png|jpg|jpeg|gif|bmp|webp|ai|pdf)$/i.test(file)
                         )
-
-                        if (matchingFile) {
-                            const imageFile = `${config.imagePath}/${matchingFile}`
-                            const fileExt = matchingFile.split('.').pop()?.toLowerCase() || ''
-
-                            let imageData
-                            if (fileExt === 'ai' || fileExt === 'pdf') {
-                                // Convert AI/PDF to image
-                                imageData = await window.electronAPI.convertFileToImage(imageFile)
-                            } else {
-                                // Use original file for images
-                                imageData = await window.electronAPI.getImageData(imageFile)
-                            }
-
-                            if (imageData) {
-                                setImagePath(imageData)
-                                setFileType(fileExt)
-                                setImageError('')
-                                foundImage = true
-                            }
-                        }
-                    }
-                }
-
-                if (!foundImage) {
-                    setImageError(`No image found for task code: ${taskCode}`)
-                    setImagePath('')
+                        .forEach((file) => {
+                            const ext = (file.split('.').pop() || '').toLowerCase()
+                            fsItems.push({
+                                id: `${config.imagePath}/${file}`,
+                                name: file,
+                                path: `${config.imagePath}/${file}`,
+                                ext,
+                                source: 'filesystem'
+                            })
+                        })
                 }
             }
-        } catch (err) {
-            setImageError('Failed to load image: ' + (err as Error).message)
-            setImagePath('')
+
+            if (fsItems.length > 0) {
+                setGallery(fsItems)
+                setActiveIndex(0)
+            } else {
+                setImageError(`No image found for task code: ${taskCode}`)
+            }
+        } catch (err: any) {
+            setImageError('Failed to load image: ' + (err?.message || err))
         }
     }
 
@@ -203,54 +272,89 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
         )
     }
 
-    // If showImageOnly is true, only show the image
+    // If showImageOnly is true, only show the image + gallery strip
     if (showImageOnly) {
+        const activeItem = gallery[activeIndex]
         return (
             <div className="image-only-view">
-                {imagePath ? (
-                    <div className="image-container">
-                        {/* Qty badge overlay */}
-                        <div className="qty-badge">Qty: {order.quantity || 0}</div>
-                        <div className="size-badge">Size: {order.size_style || ''}</div>
+                <div className="gallery-main">
+                    {imagePath ? (
+                        <div className="image-container">
+                            <div className="qty-badge">Qty: {order.quantity || 0}</div>
+                            <div className="size-badge">Size: {order.size_style || ''}</div>
 
-                        {fileType === 'pdf' ? (
-                            <div className="pdf-viewer">
-                                <div className="pdf-preview">
-                                    <img
-                                        src={imagePath}
-                                        alt={`PDF Preview: ${order.product_name_new}`}
-                                        className="pdf-preview-image"
-                                        onError={() => setImageError('Failed to convert PDF file')}
-                                    />
+                            {fileType === 'pdf' ? (
+                                <div className="pdf-viewer">
+                                    <div className="pdf-preview">
+                                        <img
+                                            src={imagePath}
+                                            alt={`PDF Preview: ${order.product_name_new}`}
+                                            className="pdf-preview-image"
+                                            onError={() => setImageError('Failed to convert PDF file')}
+                                        />
+                                    </div>
                                 </div>
-                            </div>
-                        ) : fileType === 'ai' ? (
-                            <div className="ai-viewer">
-                                <div className="ai-preview">
-                                    <img
-                                        src={imagePath}
-                                        alt={`AI Preview: ${order.product_name_new}`}
-                                        className="ai-preview-image"
-                                        onError={() => setImageError('Failed to convert AI file')}
-                                    />
+                            ) : fileType === 'ai' ? (
+                                <div className="ai-viewer">
+                                    <div className="ai-preview">
+                                        <img
+                                            src={imagePath}
+                                            alt={`AI Preview: ${order.product_name_new}`}
+                                            className="ai-preview-image"
+                                            onError={() => setImageError('Failed to convert AI file')}
+                                        />
+                                    </div>
                                 </div>
-                            </div>
-                        ) : (
-                            <img
-                                src={imagePath}
-                                alt={`Product: ${order.product_name_new}`}
-                                className="product-image"
-                                onError={() => setImageError('Failed to load image')}
-                            />
-                        )}
-                    </div>
-                ) : imageError ? (
-                    <div className="image-error">
-                        <p>{imageError}</p>
-                    </div>
-                ) : (
-                    <div className="image-loading">
-                        <p>Loading image...</p>
+                            ) : (
+                                <img
+                                    src={imagePath}
+                                    alt={`Product: ${order.product_name_new}`}
+                                    className="product-image"
+                                    onError={() => setImageError('Failed to load image')}
+                                />
+                            )}
+                        </div>
+                    ) : imageError ? (
+                        <div className="image-error">
+                            <p>{imageError}</p>
+                        </div>
+                    ) : (
+                        <div className="image-loading">
+                            <p>{isLoadingImage ? 'Loading image...' : 'Waiting for image...'}</p>
+                        </div>
+                    )}
+
+                    {activeItem && (
+                        <div className="gallery-caption" title={activeItem.path}>
+                            <span className="gallery-caption-name">{activeItem.name}</span>
+                            <span className={`gallery-caption-source ${activeItem.source}`}>
+                                {activeItem.source === 'elasticsearch' ? 'ES' : 'LOCAL'}
+                            </span>
+                        </div>
+                    )}
+                </div>
+
+                {gallery.length > 1 && (
+                    <div className="gallery-strip">
+                        <div className="gallery-strip-header">
+                            <span>{gallery.length} files found</span>
+                            <span className="gallery-strip-counter">
+                                {activeIndex + 1} / {gallery.length}
+                            </span>
+                        </div>
+                        <div className="gallery-thumbs">
+                            {gallery.map((item, idx) => (
+                                <button
+                                    key={item.id}
+                                    className={`gallery-thumb ${idx === activeIndex ? 'active' : ''}`}
+                                    onClick={() => setActiveIndex(idx)}
+                                    title={item.path}
+                                >
+                                    <span className={`gallery-thumb-ext ext-${item.ext}`}>{item.ext}</span>
+                                    <span className="gallery-thumb-name">{item.name}</span>
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>

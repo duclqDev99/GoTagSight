@@ -33,6 +33,26 @@ declare global {
             setBarTenderConfig: (config: any) => Promise<boolean>
             exportOrderToExcel: (order: any, exportFolder: string) => Promise<any>
             setAuthToken: (token: string | null) => Promise<boolean>
+            searchImagesByCode: (code: string) => Promise<{
+                enabled: boolean
+                hits: Array<{
+                    id: string
+                    score: number
+                    name: string
+                    path: string
+                    ext: string
+                    size: number
+                    mtime: number
+                    dir: string
+                }>
+                error?: string
+            }>
+            testEsConnection: (esConfig: any) => Promise<{
+                success: boolean
+                message: string
+                total?: number
+                detail?: string
+            }>
         }
         Quagga: any
     }

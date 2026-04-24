@@ -29,10 +29,23 @@ interface BarTenderConfig {
     printMethod?: 'direct' | 'script'
 }
 
+interface ElasticsearchConfig {
+    enabled: boolean
+    baseURL: string
+    index: string
+    username?: string
+    password?: string
+    searchFields?: string[]
+    size?: number
+    timeout?: number
+    fallbackToFilesystem: boolean
+}
+
 interface AppConfig {
     apiConfig: ApiConfig
     imagePath: string
     barTenderConfig: BarTenderConfig
+    elasticsearchConfig?: ElasticsearchConfig
 }
 
 interface SettingsProps {
@@ -81,7 +94,8 @@ const Settings: React.FC<SettingsProps> = ({ config, onConfigChange }) => {
                 autoPrint: safeConfig.barTenderConfig?.autoPrint || false,
                 printScriptPath: safeConfig.barTenderConfig?.printScriptPath || '',
                 printMethod: safeConfig.barTenderConfig?.printMethod || 'direct'
-            }
+            },
+            elasticsearchConfig: safeConfig.elasticsearchConfig
         }
     })
 
@@ -101,6 +115,11 @@ const Settings: React.FC<SettingsProps> = ({ config, onConfigChange }) => {
                 await window.electronAPI.setConfig({
                     apiConfig: localConfig.apiConfig,
                     imagePath: localConfig.imagePath,
+                    barTenderConfig: localConfig.barTenderConfig,
+                    elasticsearchConfig: localConfig.elasticsearchConfig
+                })
+                onConfigChange({
+                    apiConfig: localConfig.apiConfig,
                     barTenderConfig: localConfig.barTenderConfig
                 })
                 setTestResult({ success: true, message: 'Configuration saved successfully!' })
@@ -116,10 +135,6 @@ const Settings: React.FC<SettingsProps> = ({ config, onConfigChange }) => {
             [field]: value
         }
         onConfigChange({ apiConfig: newApiConfig })
-    }
-
-    const handleImagePathChange = (value: string) => {
-        onConfigChange({ imagePath: value })
     }
 
     const handleBarTenderChange = (field: keyof typeof barTenderConfig, value: any) => {
@@ -150,19 +165,6 @@ const Settings: React.FC<SettingsProps> = ({ config, onConfigChange }) => {
             setTestResult({ success: false, message: `Test failed: ${error}` })
         } finally {
             setIsTesting(false)
-        }
-    }
-
-    const selectImageFolder = async () => {
-        try {
-            if (window.electronAPI) {
-                const selectedPath = await window.electronAPI.selectFolder()
-                if (selectedPath) {
-                    handleImagePathChange(selectedPath)
-                }
-            }
-        } catch (error) {
-            console.error('Failed to select folder:', error)
         }
     }
 
@@ -327,26 +329,6 @@ const Settings: React.FC<SettingsProps> = ({ config, onConfigChange }) => {
                 )}
             </div>
 
-            {/* Image Path Configuration */}
-            <div className="settings-section">
-                <h3>Image Path Configuration</h3>
-
-                <div className="form-group">
-                    <label>Image Directory:</label>
-                    <div className="path-input">
-                        <input
-                            type="text"
-                            value={localConfig.imagePath}
-                            onChange={(e) => handleImagePathChange(e.target.value)}
-                            placeholder="/path/to/images"
-                        />
-                        <button className="select-button" onClick={selectImageFolder}>
-                            Select Folder
-                        </button>
-                    </div>
-                </div>
-            </div>
-
             {/* BarTender Configuration */}
             <div className="settings-section">
                 <h3>BarTender Configuration</h3>
@@ -419,11 +401,10 @@ const Settings: React.FC<SettingsProps> = ({ config, onConfigChange }) => {
                         <li><strong>Custom:</strong> Enter your own API URL</li>
                     </ul>
 
-                    <h4>Image Path:</h4>
+                    <h4>Image & Elasticsearch:</h4>
                     <ul>
-                        <li>Select the folder containing your product images</li>
+                        <li>Cấu hình ảnh và Elasticsearch được đặt trong cửa sổ "Setting Hình Ảnh".</li>
                         <li>Supported formats: PNG, JPG, JPEG, GIF, BMP, WEBP, AI, PDF</li>
-                        <li>Images should match task_code_front from API</li>
                     </ul>
 
                     <h4>BarTender Setup:</h4>

@@ -3,6 +3,7 @@ import Scanner from './components/Scanner'
 import OrderView from './components/OrderView'
 import Settings from './components/Settings'
 import BarTenderSettings from './components/BarTenderSettings'
+import ImageSettings from './components/ImageSettings'
 import Notification from './components/Notification'
 import Login from './components/Login'
 import './App.css'
@@ -29,10 +30,23 @@ interface BarTenderConfig {
     printMethod?: 'direct' | 'script'
 }
 
+interface ElasticsearchConfig {
+    enabled: boolean
+    baseURL: string
+    index: string
+    username?: string
+    password?: string
+    searchFields?: string[]
+    size?: number
+    timeout?: number
+    fallbackToFilesystem: boolean
+}
+
 interface AppConfig {
     apiConfig: ApiConfig
     imagePath: string
     barTenderConfig: BarTenderConfig
+    elasticsearchConfig?: ElasticsearchConfig
 }
 
 interface OrderDetail {
@@ -85,7 +99,7 @@ function App() {
             password: '',
             apiKey: ''
         },
-        imagePath: '/Users/macvn/Desktop/test-image',
+        imagePath: '/Volumes/Designer ZenE',
         barTenderConfig: {
             enabled: false,
             bartenderPath: '',
@@ -95,6 +109,15 @@ function App() {
             autoPrint: false,
             printScriptPath: '',
             printMethod: 'direct'
+        },
+        elasticsearchConfig: {
+            enabled: true,
+            baseURL: 'http://172.26.207.206:9200',
+            index: 'nas_files',
+            searchFields: ['name^3', 'attachment.content', 'path'],
+            size: 20,
+            timeout: 8000,
+            fallbackToFilesystem: true
         }
     })
 
@@ -104,6 +127,7 @@ function App() {
     const [groupedOrders, setGroupedOrders] = useState<{ [key: number]: OrderDetail[] }>({})
     const [showSettings, setShowSettings] = useState(false)
     const [showBarTenderSettings, setShowBarTenderSettings] = useState(false)
+    const [showImageSettings, setShowImageSettings] = useState(false)
     const [isScanning, setIsScanning] = useState(false)
     const [isConfigValid, setIsConfigValid] = useState(false)
     const [isLoadingConfig, setIsLoadingConfig] = useState(true)
@@ -641,6 +665,12 @@ function App() {
                                         </button>
                                         <button
                                             className="settings-btn"
+                                            onClick={() => setShowImageSettings(true)}
+                                        >
+                                            🖼️ Hình ảnh
+                                        </button>
+                                        <button
+                                            className="settings-btn"
                                             onClick={() => setShowSettings(!showSettings)}
                                         >
                                             ⚙️ Settings
@@ -798,6 +828,18 @@ function App() {
 
                             {showBarTenderSettings && (
                                 <BarTenderSettings onClose={() => setShowBarTenderSettings(false)} />
+                            )}
+
+                            {showImageSettings && (
+                                <ImageSettings
+                                    onClose={() => setShowImageSettings(false)}
+                                    onSaved={async () => {
+                                        if (window.electronAPI) {
+                                            const loaded: AppConfig = await window.electronAPI.getConfig()
+                                            if (loaded) setConfig(loaded)
+                                        }
+                                    }}
+                                />
                             )}
                         </>
                     )}

@@ -23,7 +23,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getBarTenderConfig: () => ipcRenderer.invoke('get-barTender-config'),
     setBarTenderConfig: (config: any) => ipcRenderer.invoke('set-barTender-config', config),
     exportOrderToExcel: (order: any, exportFolder: string) => ipcRenderer.invoke('export-order-to-excel', order, exportFolder),
-    setAuthToken: (token: string | null) => ipcRenderer.invoke('set-auth-token', token)
+    setAuthToken: (token: string | null) => ipcRenderer.invoke('set-auth-token', token),
+    searchImagesByCode: (code: string) => ipcRenderer.invoke('search-images-by-code', code),
+    testEsConnection: (esConfig: any) => ipcRenderer.invoke('test-es-connection', esConfig)
 })
 
 declare global {
@@ -44,6 +46,26 @@ declare global {
             convertFileToImage: (filePath: string) => Promise<string | null>
             exportOrderToExcel: (order: any, exportFolder: string) => Promise<any>
             setAuthToken: (token: string | null) => Promise<boolean>
+            searchImagesByCode: (code: string) => Promise<{
+                enabled: boolean
+                hits: Array<{
+                    id: string
+                    score: number
+                    name: string
+                    path: string
+                    ext: string
+                    size: number
+                    mtime: number
+                    dir: string
+                }>
+                error?: string
+            }>
+            testEsConnection: (esConfig: any) => Promise<{
+                success: boolean
+                message: string
+                total?: number
+                detail?: string
+            }>
         }
     }
 } 

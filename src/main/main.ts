@@ -204,13 +204,15 @@ ipcMain.handle('get-config', async () => {
     return {
         imagePath: configManager.getImagePath(),
         databaseConfig: configManager.getDatabaseConfig(),
-        apiConfig: config?.apiConfig || null
+        apiConfig: config?.apiConfig || null,
+        barTenderConfig: config?.barTenderConfig || null,
+        elasticsearchConfig: configManager.getElasticsearchConfig()
     }
 })
 
-ipcMain.handle('set-config', async (event, config: any) => {
+ipcMain.handle('set-config', async (_event, config: any) => {
     try {
-        if (config.imagePath) {
+        if (config.imagePath !== undefined) {
             configManager.updateImagePath(config.imagePath)
         }
         if (config.databaseConfig) {
@@ -218,6 +220,9 @@ ipcMain.handle('set-config', async (event, config: any) => {
         }
         if (config.apiConfig) {
             configManager.updateApiConfig(config.apiConfig)
+        }
+        if (config.elasticsearchConfig) {
+            configManager.updateElasticsearchConfig(config.elasticsearchConfig)
         }
         return true
     } catch (error) {
@@ -444,6 +449,127 @@ ipcMain.handle('set-barTender-config', async (event, barTenderConfig: any) => {
     } catch (error) {
         console.error('Failed to set BarTender config:', error)
         return false
+    }
+})
+
+ipcMain.handle('test-es-connection', async (_event, esConfig: any) => {
+    try {
+        if (!esConfig || !esConfig.baseURL) {
+            return { success: false, message: 'Base URL is required' }
+        }
+        const index = esConfig.index || 'nas_files'
+        const url = `${String(esConfig.baseURL).replace(/\/$/, '')}/${index}/_search?size=1`
+        const headers: any = { 'Content-Type': 'application/json' }
+        if (esConfig.username && esConfig.password) {
+            headers['Authorization'] = 'Basic ' + Buffer.from(`${esConfig.username}:${esConfig.password}`).toString('base64')
+        }
+
+        const controller = new AbortController()
+        const timeoutMs = typeof esConfig.timeout === 'number' ? esConfig.timeout : 8000
+        const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+        try {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ query: { match_all: {} } }),
+                signal: controller.signal
+            })
+            clearTimeout(timer)
+
+            if (!res.ok) {
+                const text = await res.text().catch(() => '')
+                return { success: false, message: `ES responded ${res.status}`, detail: text?.slice(0, 200) }
+            }
+            const json: any = await res.json()
+            const total = json?.hits?.total?.value ?? 0
+            return { success: true, message: `Connected. Index "${index}" has ${total} documents.`, total }
+        } catch (err: any) {
+            clearTimeout(timer)
+            return { success: false, message: `Connection failed: ${err?.message || err}` }
+        }
+    } catch (error: any) {
+        return { success: false, message: `Error: ${error?.message || error}` }
+    }
+})
+
+ipcMain.handle('search-images-by-code', async (_event, code: string) => {
+    try {
+        const config = configManager.getConfig() as any
+        const esConfig = config?.elasticsearchConfig
+        if (!esConfig || !esConfig.enabled || !esConfig.baseURL || !esConfig.index) {
+            return { enabled: false, hits: [] }
+        }
+
+        const renderableExts = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'ai', 'pdf']
+        const fields = Array.isArray(esConfig.searchFields) && esConfig.searchFields.length > 0
+            ? esConfig.searchFields
+            : ['name^3', 'attachment.content', 'path']
+        const size = typeof esConfig.size === 'number' && esConfig.size > 0 ? esConfig.size : 20
+
+        const url = `${esConfig.baseURL.replace(/\/$/, '')}/${esConfig.index}/_search?_source_excludes=attachment.content`
+        const body = {
+            size,
+            query: {
+                multi_match: {
+                    query: code,
+                    fields
+                }
+            }
+        }
+
+        const headers: any = { 'Content-Type': 'application/json' }
+        if (esConfig.username && esConfig.password) {
+            headers['Authorization'] = 'Basic ' + Buffer.from(`${esConfig.username}:${esConfig.password}`).toString('base64')
+        }
+
+        const controller = new AbortController()
+        const timeoutMs = typeof esConfig.timeout === 'number' ? esConfig.timeout : 8000
+        const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+        try {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(body),
+                signal: controller.signal
+            })
+            clearTimeout(timer)
+
+            if (!res.ok) {
+                const text = await res.text().catch(() => '')
+                console.error('ES search failed:', res.status, text)
+                return { enabled: true, hits: [], error: `ES ${res.status}` }
+            }
+
+            const json: any = await res.json()
+            const rawHits = json?.hits?.hits || []
+            const hits = rawHits
+                .map((h: any) => {
+                    const src = h._source || {}
+                    const ext = String(src.ext || '').toLowerCase()
+                    return {
+                        id: h._id as string,
+                        score: h._score as number,
+                        name: src.name as string,
+                        path: src.path as string,
+                        ext,
+                        size: src.size as number,
+                        mtime: src.mtime as number,
+                        dir: src.dir as string
+                    }
+                })
+                .filter((h: any) => h.path && renderableExts.includes(h.ext))
+
+            return { enabled: true, hits }
+        } catch (err: any) {
+            clearTimeout(timer)
+            console.error('ES search error:', err?.message || err)
+            return { enabled: true, hits: [], error: err?.message || String(err) }
+        }
+    } catch (error: any) {
+        console.error('search-images-by-code failed:', error)
+        return { enabled: false, hits: [], error: error?.message || String(error) }
     }
 })
 
