@@ -25,6 +25,9 @@ declare global {
             createSampleData: () => Promise<void>
             checkFileExists: (filePath: string) => Promise<boolean>
             getImageData: (filePath: string) => Promise<string | null>
+            getImageThumbnail: (filePath: string, maxDim?: number) => Promise<string | null>
+            getThumbCacheStats: () => Promise<{ count: number; totalBytes: number; dir?: string; error?: string }>
+            clearThumbCache: () => Promise<{ success: boolean; deleted: number; freedBytes: number; error?: string }>
             listFiles: (dirPath: string) => Promise<string[]>
             convertFileToImage: (filePath: string) => Promise<string | null>
             printBarcode: (barcodeData: string, orderInfo?: any) => Promise<{ success: boolean; message: string }>

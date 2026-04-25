@@ -72,7 +72,7 @@ export class ApiService {
         const headers: any = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'User-Agent': 'GoTagSight/1.0.0'
+            'User-Agent': 'iSuccess-Scan-Barcode/1.0.0'
         }
 
         // Thêm Bearer token nếu có (chấp nhận nhập có/không có tiền tố Bearer)
@@ -108,7 +108,7 @@ export class ApiService {
         const updateHeaders: any = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'User-Agent': 'GoTagSight/1.0.0'
+            'User-Agent': 'iSuccess-Scan-Barcode/1.0.0'
         }
 
         if (config.updateApiKey) {
@@ -237,7 +237,7 @@ export class ApiService {
                         headers: {
                             'Accept': 'application/json',
                             'Content-Type': 'application/json',
-                            'User-Agent': 'GoTagSight/1.0.0'
+                            'User-Agent': 'iSuccess-Scan-Barcode/1.0.0'
                         }
                     })
                     console.log(`Success with endpoint ${endpoint}:`, response.status)

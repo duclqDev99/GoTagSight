@@ -42,11 +42,19 @@ interface ElasticsearchConfig {
     fallbackToFilesystem: boolean
 }
 
+interface ThumbServerConfig {
+    enabled: boolean
+    baseURL: string
+    nasPrefix: string
+    extension: string
+}
+
 interface AppConfig {
     apiConfig: ApiConfig
     imagePath: string
     barTenderConfig: BarTenderConfig
     elasticsearchConfig?: ElasticsearchConfig
+    thumbServerConfig?: ThumbServerConfig
 }
 
 interface OrderDetail {
@@ -118,6 +126,12 @@ function App() {
             size: 20,
             timeout: 8000,
             fallbackToFilesystem: true
+        },
+        thumbServerConfig: {
+            enabled: true,
+            baseURL: 'http://172.26.207.206:8081/thumbs/',
+            nasPrefix: '/Volumes/Designer ZenE/',
+            extension: '.webp'
         }
     })
 
@@ -621,8 +635,11 @@ function App() {
                 <>
                     {/* Show Settings if config is invalid or forced open */}
                     {(showSettings || !isConfigValid) ? (
-                        <div className="settings-overlay">
-                            <div className="settings-modal">
+                        <div
+                            className="settings-overlay"
+                            onClick={isConfigValid ? () => setShowSettings(false) : undefined}
+                        >
+                            <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
                                 <div className="settings-header">
                                     <h2>Database Configuration Required</h2>
                                     {isConfigValid && (
@@ -643,7 +660,7 @@ function App() {
                     ) : (
                         <>
                             <div className="app-header">
-                                <h1 className="app-title">Scan Barcode & Manage Orders</h1>
+                                <h1 className="app-title">iSuccess Scan Barcode</h1>
                                 <div className="header-controls">
                                     <div className="total-orders">Total orders: {totalOrders}</div>
                                     <div className="header-buttons">

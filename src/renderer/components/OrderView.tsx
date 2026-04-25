@@ -1,5 +1,30 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
+
+// Extensions the browser can render natively via safe-image:// protocol
+const DIRECT_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'])
+// Extensions that need conversion to PNG first
+const CONVERT_EXTS = new Set(['ai', 'pdf'])
+
+const toSafeImageUrl = (absPath: string) => {
+    const trimmed = absPath.replace(/^\/+/, '')
+    const encoded = encodeURIComponent(trimmed).replace(/%2F/g, '/')
+    return `safe-image:///${encoded}`
+}
+
+// Build HTTP URL pointing to pre-generated WebP thumbnail on nginx server.
+// Returns null if thumb server is off or path doesn't sit under configured nasPrefix.
+const toThumbUrl = (
+    absPath: string,
+    cfg?: { enabled: boolean; baseURL: string; nasPrefix: string; extension: string }
+): string | null => {
+    if (!cfg?.enabled || !cfg.baseURL || !cfg.nasPrefix) return null
+    if (!absPath.startsWith(cfg.nasPrefix)) return null
+    const rel = absPath.slice(cfg.nasPrefix.length)
+    const ext = cfg.extension || '.webp'
+    const encoded = encodeURIComponent(rel + ext).replace(/%2F/g, '/')
+    return cfg.baseURL.replace(/\/$/, '') + '/' + encoded
+}
 
 interface ApiConfig {
     baseURL: string
@@ -24,10 +49,18 @@ interface ElasticsearchConfig {
     fallbackToFilesystem: boolean
 }
 
+interface ThumbServerConfig {
+    enabled: boolean
+    baseURL: string
+    nasPrefix: string
+    extension: string
+}
+
 interface AppConfig {
     apiConfig: ApiConfig
     imagePath: string
     elasticsearchConfig?: ElasticsearchConfig
+    thumbServerConfig?: ThumbServerConfig
 }
 
 interface OrderDetail {
@@ -99,6 +132,17 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
     const [activeIndex, setActiveIndex] = useState<number>(0)
     const [isLoadingImage, setIsLoadingImage] = useState<boolean>(false)
 
+    // In-memory cache of converted files: path → data URL (base64 from convertFileToImage)
+    const convertCacheRef = useRef<Map<string, string>>(new Map())
+    // Raster thumbnail cache: original path → local cached thumb path
+    const thumbCacheRef = useRef<Map<string, string>>(new Map())
+    // Track which items have been preload-requested so we don't fire twice
+    const preloadStartedRef = useRef<Set<string>>(new Set())
+    // Generation counter to cancel in-flight preloads when switching orders
+    const loadGenRef = useRef<number>(0)
+    // Background preload progress
+    const [preloadProgress, setPreloadProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 })
+
     useEffect(() => {
         if (propOrder) {
             setOrder(propOrder)
@@ -108,6 +152,12 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
     // Load gallery when order changes
     useEffect(() => {
         if (order && order.task_code_front) {
+            // Clear caches & cancel in-flight preloads when switching orders
+            loadGenRef.current += 1
+            convertCacheRef.current.clear()
+            thumbCacheRef.current.clear()
+            preloadStartedRef.current.clear()
+            setPreloadProgress({ done: 0, total: 0 })
             loadGallery(order.task_code_front)
         }
     }, [order, config.imagePath, config.elasticsearchConfig?.enabled, config.elasticsearchConfig?.baseURL, config.elasticsearchConfig?.index])
@@ -117,31 +167,228 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
         const item = gallery[activeIndex]
         if (!item) return
         renderItem(item)
+        // Preload neighbors in background so swapping thumbs is instant
+        preloadNearby(activeIndex)
     }, [activeIndex, gallery])
 
     const renderItem = async (item: GalleryItem) => {
         if (!window.electronAPI) return
-        setIsLoadingImage(true)
         setImageError('')
-        try {
-            const needsConvert = item.ext === 'ai' || item.ext === 'pdf'
-            const data = needsConvert
-                ? await window.electronAPI.convertFileToImage(item.path)
-                : await window.electronAPI.getImageData(item.path)
-            if (data) {
-                setImagePath(data)
-                setFileType(item.ext)
-                setImageError('')
-            } else {
-                setImagePath('')
-                setImageError(`Failed to load: ${item.name}`)
-            }
-        } catch (err: any) {
-            setImagePath('')
-            setImageError('Failed to load image: ' + (err?.message || err))
-        } finally {
-            setIsLoadingImage(false)
+        setIsLoadingImage(true)
+
+        // Fastest path: pre-built WebP from thumb server (nginx). 1 HTTP fetch, no IPC.
+        const httpThumb = toThumbUrl(item.path, config.thumbServerConfig)
+        if (httpThumb) {
+            setImagePath(httpThumb)
+            setFileType(item.ext)
+            return
         }
+
+        // Fast path: raster file → thumbnail via nativeImage, cached locally, then safe-image
+        if (DIRECT_EXTS.has(item.ext)) {
+            const cached = thumbCacheRef.current.get(item.path)
+            if (cached) {
+                setImagePath(toSafeImageUrl(cached))
+                setFileType(item.ext)
+                return
+            }
+            try {
+                const thumbPath = await window.electronAPI.getImageThumbnail(item.path, 1400)
+                if (thumbPath) {
+                    thumbCacheRef.current.set(item.path, thumbPath)
+                    setImagePath(toSafeImageUrl(thumbPath))
+                    setFileType(item.ext)
+                } else {
+                    // Fallback to original full-res via protocol
+                    setImagePath(toSafeImageUrl(item.path))
+                    setFileType(item.ext)
+                }
+            } catch (err: any) {
+                setImagePath(toSafeImageUrl(item.path))
+                setFileType(item.ext)
+            }
+            return
+        }
+
+        // Slow path: AI / PDF (convert via ImageMagick) — use cache
+        if (CONVERT_EXTS.has(item.ext)) {
+            const cached = convertCacheRef.current.get(item.path)
+            if (cached) {
+                setImagePath(cached)
+                setFileType(item.ext)
+                setIsLoadingImage(false)
+                return
+            }
+            try {
+                const data = await window.electronAPI.convertFileToImage(item.path)
+                if (data) {
+                    convertCacheRef.current.set(item.path, data)
+                    setImagePath(data)
+                    setFileType(item.ext)
+                    setImageError('')
+                } else {
+                    setImagePath('')
+                    setImageError(`Failed to load: ${item.name}`)
+                    setIsLoadingImage(false)
+                }
+            } catch (err: any) {
+                setImagePath('')
+                setImageError('Failed to load image: ' + (err?.message || err))
+                setIsLoadingImage(false)
+            }
+            return
+        }
+
+        // Unknown extension — try safe-image as last resort
+        setImagePath(toSafeImageUrl(item.path))
+        setFileType(item.ext)
+    }
+
+    // Fire-and-forget: preload the next item (and previous) so click = instant.
+    const preloadNearby = (fromIndex: number) => {
+        const neighbors = [fromIndex + 1, fromIndex - 1].filter(
+            (i) => i >= 0 && i < gallery.length
+        )
+        for (const i of neighbors) {
+            const item = gallery[i]
+            if (!item) continue
+            if (preloadStartedRef.current.has(item.path)) continue
+            preloadStartedRef.current.add(item.path)
+
+            if (DIRECT_EXTS.has(item.ext)) {
+                // Generate thumbnail on main process in background + prime browser cache
+                if (!thumbCacheRef.current.has(item.path) && window.electronAPI) {
+                    window.electronAPI
+                        .getImageThumbnail(item.path, 1400)
+                        .then((thumbPath) => {
+                            if (thumbPath) {
+                                thumbCacheRef.current.set(item.path, thumbPath)
+                                const img = new Image()
+                                img.src = toSafeImageUrl(thumbPath)
+                            }
+                        })
+                        .catch(() => {
+                            preloadStartedRef.current.delete(item.path)
+                        })
+                }
+            } else if (CONVERT_EXTS.has(item.ext)) {
+                if (convertCacheRef.current.has(item.path)) continue
+                if (!window.electronAPI) continue
+                window.electronAPI
+                    .convertFileToImage(item.path)
+                    .then((data) => {
+                        if (data) convertCacheRef.current.set(item.path, data)
+                    })
+                    .catch(() => {
+                        // Fire-and-forget — ignore errors, user will see real error on click
+                        preloadStartedRef.current.delete(item.path)
+                    })
+            }
+        }
+    }
+
+    // Background-preload ALL gallery items.
+    //
+    // Fast lane: thumb server enabled → just create <Image> with HTTP URL,
+    //   browser caches automatically. No IPC, no main-process work.
+    //
+    // Slow lane: thumb server off → fall back to local IPC thumbnail (serial).
+    const preloadAll = async (items: GalleryItem[]) => {
+        if (items.length === 0) return
+
+        const myGen = loadGenRef.current
+        const thumbCfg = config.thumbServerConfig
+        const useHttp = !!thumbCfg?.enabled && !!thumbCfg.baseURL && !!thumbCfg.nasPrefix
+
+        // Defer slightly so the active item's request goes through first
+        await new Promise((r) => setTimeout(r, 100))
+        if (loadGenRef.current !== myGen) return
+
+        const total = items.length
+        let done = 1 // active item is rendering
+        setPreloadProgress({ done, total })
+
+        if (useHttp) {
+            // Fire all images at once — browser handles HTTP cache & connection pooling
+            for (const item of items) {
+                if (loadGenRef.current !== myGen) return
+                if (preloadStartedRef.current.has(item.path)) {
+                    if (item !== items[0]) done++
+                    continue
+                }
+                preloadStartedRef.current.add(item.path)
+                if (item === items[0]) continue // already rendering
+                const url = toThumbUrl(item.path, thumbCfg)
+                if (url) {
+                    const img = new Image()
+                    img.onload = () => {
+                        if (loadGenRef.current !== myGen) return
+                        done++
+                        setPreloadProgress({ done, total })
+                    }
+                    img.onerror = () => {
+                        if (loadGenRef.current !== myGen) return
+                        done++
+                        setPreloadProgress({ done, total })
+                    }
+                    img.src = url
+                } else {
+                    done++
+                    setPreloadProgress({ done, total })
+                }
+            }
+            return
+        }
+
+        // Fallback: local IPC thumbnail (serial, slow)
+        if (!window.electronAPI) return
+        const activePath = items[0]?.path
+        const fast = items.filter((i) => DIRECT_EXTS.has(i.ext) && i.path !== activePath)
+        const slow = items.filter((i) => CONVERT_EXTS.has(i.ext) && i.path !== activePath)
+        const queue = [...fast, ...slow]
+
+        const worker = async () => {
+            while (queue.length > 0) {
+                if (loadGenRef.current !== myGen) return
+                const item = queue.shift()
+                if (!item) return
+                if (preloadStartedRef.current.has(item.path)) {
+                    done++
+                    setPreloadProgress({ done, total })
+                    continue
+                }
+                preloadStartedRef.current.add(item.path)
+
+                try {
+                    if (DIRECT_EXTS.has(item.ext)) {
+                        if (!thumbCacheRef.current.has(item.path)) {
+                            const thumb = await window.electronAPI!.getImageThumbnail(item.path, 1400)
+                            if (loadGenRef.current !== myGen) return
+                            if (thumb) {
+                                thumbCacheRef.current.set(item.path, thumb)
+                                const img = new Image()
+                                img.src = toSafeImageUrl(thumb)
+                            }
+                        }
+                    } else if (CONVERT_EXTS.has(item.ext)) {
+                        if (!convertCacheRef.current.has(item.path)) {
+                            const data = await window.electronAPI!.convertFileToImage(item.path)
+                            if (loadGenRef.current !== myGen) return
+                            if (data) convertCacheRef.current.set(item.path, data)
+                        }
+                    }
+                } catch (err) {
+                    preloadStartedRef.current.delete(item.path)
+                }
+
+                done++
+                if (loadGenRef.current === myGen) {
+                    setPreloadProgress({ done, total })
+                }
+                await new Promise((r) => setTimeout(r, 0))
+            }
+        }
+        await worker()
     }
 
     const loadGallery = async (taskCode: string) => {
@@ -170,6 +417,7 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
                     }))
                     setGallery(items)
                     setActiveIndex(0)
+                    preloadAll(items)
                     return
                 }
                 if (!fallbackToFs) {
@@ -232,6 +480,7 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
             if (fsItems.length > 0) {
                 setGallery(fsItems)
                 setActiveIndex(0)
+                preloadAll(fsItems)
             } else {
                 setImageError(`No image found for task code: ${taskCode}`)
             }
@@ -283,6 +532,13 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
                             <div className="qty-badge">Qty: {order.quantity || 0}</div>
                             <div className="size-badge">Size: {order.size_style || ''}</div>
 
+                            {isLoadingImage && (
+                                <div className="image-loading-overlay">
+                                    <div className="spinner"></div>
+                                    <span>Đang tải ảnh...</span>
+                                </div>
+                            )}
+
                             {fileType === 'pdf' ? (
                                 <div className="pdf-viewer">
                                     <div className="pdf-preview">
@@ -290,7 +546,8 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
                                             src={imagePath}
                                             alt={`PDF Preview: ${order.product_name_new}`}
                                             className="pdf-preview-image"
-                                            onError={() => setImageError('Failed to convert PDF file')}
+                                            onLoad={() => setIsLoadingImage(false)}
+                                            onError={() => { setImageError('Failed to convert PDF file'); setIsLoadingImage(false) }}
                                         />
                                     </div>
                                 </div>
@@ -301,7 +558,8 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
                                             src={imagePath}
                                             alt={`AI Preview: ${order.product_name_new}`}
                                             className="ai-preview-image"
-                                            onError={() => setImageError('Failed to convert AI file')}
+                                            onLoad={() => setIsLoadingImage(false)}
+                                            onError={() => { setImageError('Failed to convert AI file'); setIsLoadingImage(false) }}
                                         />
                                     </div>
                                 </div>
@@ -310,7 +568,8 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
                                     src={imagePath}
                                     alt={`Product: ${order.product_name_new}`}
                                     className="product-image"
-                                    onError={() => setImageError('Failed to load image')}
+                                    onLoad={() => setIsLoadingImage(false)}
+                                    onError={() => { setImageError('Failed to load image'); setIsLoadingImage(false) }}
                                 />
                             )}
                         </div>
@@ -320,7 +579,8 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
                         </div>
                     ) : (
                         <div className="image-loading">
-                            <p>{isLoadingImage ? 'Loading image...' : 'Waiting for image...'}</p>
+                            <div className="spinner"></div>
+                            <p>{isLoadingImage ? 'Đang tải ảnh...' : 'Đang đợi ảnh...'}</p>
                         </div>
                     )}
 
@@ -338,9 +598,22 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
                     <div className="gallery-strip">
                         <div className="gallery-strip-header">
                             <span>{gallery.length} files found</span>
-                            <span className="gallery-strip-counter">
-                                {activeIndex + 1} / {gallery.length}
-                            </span>
+                            <div className="gallery-strip-meta">
+                                {preloadProgress.total > 0 && preloadProgress.done < preloadProgress.total && (
+                                    <span className="gallery-preload-badge" title="Đang cache ngầm các ảnh khác">
+                                        <span className="spinner"></span>
+                                        Cache {preloadProgress.done}/{preloadProgress.total}
+                                    </span>
+                                )}
+                                {preloadProgress.total > 0 && preloadProgress.done === preloadProgress.total && (
+                                    <span className="gallery-preload-badge done" title="Tất cả ảnh đã cache">
+                                        ✓ Cached
+                                    </span>
+                                )}
+                                <span className="gallery-strip-counter">
+                                    {activeIndex + 1} / {gallery.length}
+                                </span>
+                            </div>
                         </div>
                         <div className="gallery-thumbs">
                             {gallery.map((item, idx) => (

@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, protocol, nativeImage } from 'electron'
+import * as crypto from 'crypto'
 import * as path from 'path'
 import * as fs from 'fs'
 // import { dbManager } from './database'
@@ -8,6 +9,21 @@ import { ApiService } from './api'
 
 let mainWindow: BrowserWindow | null = null
 let apiService: ApiService | null = null
+
+// Register custom protocol as privileged BEFORE app is ready — bypass CORS/CSP,
+// allow <img src="safe-image://..."> to stream files directly from disk without base64.
+protocol.registerSchemesAsPrivileged([
+    {
+        scheme: 'safe-image',
+        privileges: {
+            standard: true,
+            secure: true,
+            supportFetchAPI: true,
+            stream: true,
+            bypassCSP: true
+        }
+    }
+])
 
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -63,7 +79,25 @@ function createWindow() {
     })
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+    // safe-image://<encoded-absolute-path> → stream local file directly
+    protocol.registerFileProtocol('safe-image', (request, callback) => {
+        try {
+            const raw = request.url.replace(/^safe-image:\/\//, '')
+            // Strip optional leading slash that the URL parser inserts for host-less schemes
+            const noLeadSlash = raw.startsWith('/') ? raw.slice(1) : raw
+            const decoded = decodeURIComponent(noLeadSlash)
+            // Paths coming from ES are absolute (e.g. /Volumes/...). Ensure leading slash.
+            const absPath = decoded.startsWith('/') ? decoded : '/' + decoded
+            callback({ path: absPath })
+        } catch (err) {
+            console.error('safe-image protocol error:', err)
+            callback({ error: -2 })
+        }
+    })
+
+    createWindow()
+})
 
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
@@ -206,7 +240,8 @@ ipcMain.handle('get-config', async () => {
         databaseConfig: configManager.getDatabaseConfig(),
         apiConfig: config?.apiConfig || null,
         barTenderConfig: config?.barTenderConfig || null,
-        elasticsearchConfig: configManager.getElasticsearchConfig()
+        elasticsearchConfig: configManager.getElasticsearchConfig(),
+        thumbServerConfig: configManager.getThumbServerConfig()
     }
 })
 
@@ -223,6 +258,9 @@ ipcMain.handle('set-config', async (_event, config: any) => {
         }
         if (config.elasticsearchConfig) {
             configManager.updateElasticsearchConfig(config.elasticsearchConfig)
+        }
+        if (config.thumbServerConfig) {
+            configManager.updateThumbServerConfig(config.thumbServerConfig)
         }
         return true
     } catch (error) {
@@ -317,6 +355,97 @@ ipcMain.handle('get-image-data', async (event, filePath: string) => {
     } catch (error) {
         console.error('Failed to get image data:', error)
         return null
+    }
+})
+
+ipcMain.handle('get-image-thumbnail', async (_event, filePath: string, maxDim: number = 1200) => {
+    try {
+        // Async stat — does not block event loop while SMB responds
+        const stat = await fs.promises.stat(filePath).catch(() => null)
+        if (!stat) return null
+
+        // Cache key = hash of (path + mtime + maxDim) so edits invalidate it.
+        const hash = crypto
+            .createHash('sha1')
+            .update(`${filePath}|${stat.mtimeMs}|${maxDim}`)
+            .digest('hex')
+        const cacheDir = path.join(app.getPath('userData'), 'thumbs')
+        await fs.promises.mkdir(cacheDir, { recursive: true }).catch(() => {})
+        const cachePath = path.join(cacheDir, `${hash}.jpg`)
+
+        // Hot path: cache hit → return immediately, no SMB read
+        const cacheHit = await fs.promises.access(cachePath).then(() => true).catch(() => false)
+        if (cacheHit) return cachePath
+
+        // Async read — biggest win: SMB transfer no longer blocks event loop
+        const buffer = await fs.promises.readFile(filePath)
+
+        // Decode/resize/encode are sync but operate in-memory & are fast for normal images
+        const img = nativeImage.createFromBuffer(buffer)
+        if (img.isEmpty()) {
+            // Can't decode (e.g. .psd) → fall back to original file path
+            return filePath
+        }
+        const size = img.getSize()
+        const scale = Math.min(1, maxDim / Math.max(size.width, size.height))
+        const resized = scale < 1
+            ? img.resize({
+                width: Math.round(size.width * scale),
+                height: Math.round(size.height * scale),
+                quality: 'good'
+            })
+            : img
+        await fs.promises.writeFile(cachePath, resized.toJPEG(85))
+        return cachePath
+    } catch (error) {
+        console.error('Failed to get image thumbnail:', error)
+        return null
+    }
+})
+
+ipcMain.handle('get-thumb-cache-stats', async () => {
+    try {
+        const cacheDir = path.join(app.getPath('userData'), 'thumbs')
+        if (!fs.existsSync(cacheDir)) return { count: 0, totalBytes: 0, dir: cacheDir }
+        let count = 0
+        let totalBytes = 0
+        const files = fs.readdirSync(cacheDir)
+        for (const f of files) {
+            try {
+                const stat = fs.statSync(path.join(cacheDir, f))
+                if (stat.isFile()) {
+                    count++
+                    totalBytes += stat.size
+                }
+            } catch { }
+        }
+        return { count, totalBytes, dir: cacheDir }
+    } catch (error: any) {
+        return { count: 0, totalBytes: 0, error: error?.message || String(error) }
+    }
+})
+
+ipcMain.handle('clear-thumb-cache', async () => {
+    try {
+        const cacheDir = path.join(app.getPath('userData'), 'thumbs')
+        if (!fs.existsSync(cacheDir)) return { success: true, deleted: 0, freedBytes: 0 }
+        let deleted = 0
+        let freedBytes = 0
+        const files = fs.readdirSync(cacheDir)
+        for (const f of files) {
+            const fp = path.join(cacheDir, f)
+            try {
+                const stat = fs.statSync(fp)
+                if (stat.isFile()) {
+                    fs.unlinkSync(fp)
+                    freedBytes += stat.size
+                    deleted++
+                }
+            } catch { }
+        }
+        return { success: true, deleted, freedBytes }
+    } catch (error: any) {
+        return { success: false, error: error?.message || String(error), deleted: 0, freedBytes: 0 }
     }
 })
 

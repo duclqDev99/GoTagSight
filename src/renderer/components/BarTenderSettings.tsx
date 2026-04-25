@@ -80,8 +80,8 @@ const BarTenderSettings: React.FC<BarTenderSettingsProps> = ({ onClose }) => {
     }
 
     return (
-        <div className="settings-overlay">
-            <div className="settings-modal">
+        <div className="settings-overlay" onClick={onClose}>
+            <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
                 <div className="settings-header">
                     <h2>BarTender Integration Settings</h2>
                     <button className="close-btn" onClick={onClose}>×</button>

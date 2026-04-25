@@ -1,7 +1,7 @@
 {
-    "name": "gotagsight",
+    "name": "isuccess-scan-barcode",
     "version": "1.0.0",
-    "description": "Barcode Scanner App for QC and Inventory Management",
+    "description": "iSuccess Scan Barcode — barcode scanning and order management",
     "main": "dist/main.js",
     "scripts": {
         "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:main\"",
@@ -24,7 +24,7 @@
         "inventory",
         "electron"
     ],
-    "author": "GoTagSight Team",
+    "author": "iSuccess",
     "license": "MIT",
     "devDependencies": {
         "@types/node": "^20.0.0",
@@ -50,8 +50,8 @@
         "xlsx": "^0.18.5"
     },
     "build": {
-        "appId": "com.gotagsight.app",
-        "productName": "GoTagSight",
+        "appId": "com.isuccess.scanbarcode",
+        "productName": "iSuccess Scan Barcode",
         "directories": {
             "output": "release"
         },
@@ -79,9 +79,9 @@
             "allowToChangeInstallationDirectory": true,
             "createDesktopShortcut": true,
             "createStartMenuShortcut": true,
-            "shortcutName": "GoTagSight",
-            "uninstallDisplayName": "GoTagSight",
-            "artifactName": "GoTagSight-Setup-${version}.${ext}",
+            "shortcutName": "iSuccess Scan Barcode",
+            "uninstallDisplayName": "iSuccess Scan Barcode",
+            "artifactName": "iSuccess-Scan-Barcode-Setup-${version}.${ext}",
             "deleteAppDataOnUninstall": true,
             "runAfterFinish": true,
             "include": "installer.nsh"

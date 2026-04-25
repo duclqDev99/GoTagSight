@@ -1,38 +1,38 @@
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
-    --ink: #0c0a09;
-    --ink-2: #1c1917;
-    --muted: #57534e;
-    --muted-2: #78716c;
-    --line: #e7e5e4;
-    --line-2: #f0efed;
+    /* Neutral palette — flat, no gradients */
+    --ink: #1a1a1a;
+    --ink-2: #333333;
+    --muted: #666666;
+    --muted-2: #999999;
+    --line: #e0e0e0;
+    --line-2: #f0f0f0;
     --surface: #ffffff;
-    --surface-2: #fafaf8;
-    --surface-3: #f5f5f3;
-    --canvas: #f4f3f0;
+    --surface-2: #f7f7f7;
+    --surface-3: #efefef;
+    --canvas: #f7f7f7;
 
-    --accent: #e8583b;
-    --accent-ink: #ffffff;
-    --accent-soft: #fff1ec;
-    --accent-ring: rgba(232, 88, 59, 0.22);
+    /* Single accent — used sparingly for focus / selected */
+    --accent: #2563eb;
+    --accent-soft: #dbeafe;
+    --accent-ring: rgba(37, 99, 235, 0.18);
 
-    --success: #0f766e;
-    --success-soft: #e7f6f3;
-    --warn: #b45309;
-    --warn-soft: #fef4e4;
+    --success: #15803d;
+    --success-soft: #dcfce7;
+    --warn: #a16207;
+    --warn-soft: #fef9c3;
     --danger: #b91c1c;
-    --danger-soft: #fdeaea;
+    --danger-soft: #fee2e2;
 
-    --radius-sm: 6px;
-    --radius: 10px;
-    --radius-lg: 14px;
+    --radius-sm: 3px;
+    --radius: 4px;
+    --radius-lg: 6px;
 
-    --shadow-1: 0 1px 2px rgba(12, 10, 9, 0.04), 0 1px 1px rgba(12, 10, 9, 0.03);
-    --shadow-2: 0 6px 24px -8px rgba(12, 10, 9, 0.12), 0 2px 6px rgba(12, 10, 9, 0.05);
-
-    --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    --row-h: 28px;
 }
 
 * {
@@ -53,10 +53,8 @@ body {
     -moz-osx-font-smoothing: grayscale;
     background: var(--canvas);
     color: var(--ink);
-    font-feature-settings: "ss01", "cv11";
-    font-size: 14px;
-    line-height: 1.45;
-    letter-spacing: -0.005em;
+    font-size: 13px;
+    line-height: 1.4;
 }
 
 code,
@@ -66,11 +64,10 @@ kbd {
 
 button {
     font-family: inherit;
-    font-feature-settings: inherit;
 }
 
 button:disabled {
-    opacity: 0.5;
+    opacity: 0.45;
     cursor: not-allowed;
 }
 
@@ -88,22 +85,22 @@ select:focus {
 }
 
 ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: 12px;
+    height: 12px;
 }
 
 ::-webkit-scrollbar-track {
-    background: transparent;
+    background: var(--surface-2);
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #d6d3d1;
-    border: 2px solid var(--canvas);
-    border-radius: 10px;
+    background: #c0c0c0;
+    border: 3px solid var(--surface-2);
+    border-radius: 0;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: #a8a29e;
+    background: #a0a0a0;
 }
 
 ::selection {

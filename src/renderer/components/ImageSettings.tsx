@@ -1,5 +1,26 @@
 import React, { useEffect, useState } from 'react'
 
+const DIRECT_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'])
+const CONVERT_EXTS = new Set(['ai', 'pdf'])
+
+const toSafeImageUrl = (absPath: string) => {
+    const trimmed = absPath.replace(/^\/+/, '')
+    const encoded = encodeURIComponent(trimmed).replace(/%2F/g, '/')
+    return `safe-image:///${encoded}`
+}
+
+const toThumbUrl = (
+    absPath: string,
+    cfg?: { enabled: boolean; baseURL: string; nasPrefix: string; extension: string }
+): string | null => {
+    if (!cfg?.enabled || !cfg.baseURL || !cfg.nasPrefix) return null
+    if (!absPath.startsWith(cfg.nasPrefix)) return null
+    const rel = absPath.slice(cfg.nasPrefix.length)
+    const ext = cfg.extension || '.webp'
+    const encoded = encodeURIComponent(rel + ext).replace(/%2F/g, '/')
+    return cfg.baseURL.replace(/\/$/, '') + '/' + encoded
+}
+
 interface ElasticsearchConfig {
     enabled: boolean
     baseURL: string
@@ -10,6 +31,13 @@ interface ElasticsearchConfig {
     size?: number
     timeout?: number
     fallbackToFilesystem: boolean
+}
+
+interface ThumbServerConfig {
+    enabled: boolean
+    baseURL: string
+    nasPrefix: string
+    extension: string
 }
 
 interface ImageSettingsProps {
@@ -31,9 +59,17 @@ const DEFAULT_ES: ElasticsearchConfig = {
     fallbackToFilesystem: true
 }
 
+const DEFAULT_THUMB: ThumbServerConfig = {
+    enabled: true,
+    baseURL: 'http://172.26.207.206:8081/thumbs/',
+    nasPrefix: '/Volumes/Designer ZenE/',
+    extension: '.webp'
+}
+
 const ImageSettings: React.FC<ImageSettingsProps> = ({ onClose, onSaved }) => {
     const [imagePath, setImagePath] = useState<string>(DEFAULT_IMAGE_PATH)
     const [es, setEs] = useState<ElasticsearchConfig>(DEFAULT_ES)
+    const [thumbCfg, setThumbCfg] = useState<ThumbServerConfig>(DEFAULT_THUMB)
     const [fullConfig, setFullConfig] = useState<any>(null)
     const [saving, setSaving] = useState(false)
     const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
@@ -61,6 +97,13 @@ const ImageSettings: React.FC<ImageSettingsProps> = ({ onClose, onSaved }) => {
                         timeout: savedEs.timeout ?? DEFAULT_ES.timeout,
                         fallbackToFilesystem: savedEs.fallbackToFilesystem ?? DEFAULT_ES.fallbackToFilesystem
                     })
+                    const savedThumb = cfg.thumbServerConfig || {}
+                    setThumbCfg({
+                        enabled: savedThumb.enabled ?? DEFAULT_THUMB.enabled,
+                        baseURL: savedThumb.baseURL || DEFAULT_THUMB.baseURL,
+                        nasPrefix: savedThumb.nasPrefix || DEFAULT_THUMB.nasPrefix,
+                        extension: savedThumb.extension || DEFAULT_THUMB.extension
+                    })
                 }
             } catch (err) {
                 console.error('Failed to load image settings:', err)
@@ -71,6 +114,10 @@ const ImageSettings: React.FC<ImageSettingsProps> = ({ onClose, onSaved }) => {
 
     const updateEs = (field: keyof ElasticsearchConfig, value: any) => {
         setEs(prev => ({ ...prev, [field]: value }))
+    }
+
+    const updateThumb = (field: keyof ThumbServerConfig, value: any) => {
+        setThumbCfg(prev => ({ ...prev, [field]: value }))
     }
 
     const handleSelectFolder = async () => {
@@ -92,7 +139,8 @@ const ImageSettings: React.FC<ImageSettingsProps> = ({ onClose, onSaved }) => {
             const nextConfig = {
                 ...(fullConfig || {}),
                 imagePath,
-                elasticsearchConfig: es
+                elasticsearchConfig: es,
+                thumbServerConfig: thumbCfg
             }
             await window.electronAPI.setConfig(nextConfig)
             setFullConfig(nextConfig)
@@ -141,6 +189,10 @@ const ImageSettings: React.FC<ImageSettingsProps> = ({ onClose, onSaved }) => {
     const [probePreview, setProbePreview] = useState<string>('')
     const [probePreviewName, setProbePreviewName] = useState<string>('')
     const [probePreviewLoading, setProbePreviewLoading] = useState(false)
+    const [probePreloadProgress, setProbePreloadProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 })
+    const probePreloadGenRef = React.useRef<number>(0)
+    const probeStartedRef = React.useRef<Set<string>>(new Set())
+
 
     const handleProbeSearch = async () => {
         if (!window.electronAPI) return
@@ -153,6 +205,11 @@ const ImageSettings: React.FC<ImageSettingsProps> = ({ onClose, onSaved }) => {
         setProbeHits([])
         setProbePreview('')
         setProbePreviewName('')
+        // Cancel any in-flight preload from previous search
+        probePreloadGenRef.current += 1
+        probeStartedRef.current.clear()
+        setProbePreloadProgress({ done: 0, total: 0 })
+
         try {
             const res = await window.electronAPI.searchImagesByCode(probeCode.trim())
             if (!res?.enabled) {
@@ -169,6 +226,7 @@ const ImageSettings: React.FC<ImageSettingsProps> = ({ onClose, onSaved }) => {
             }
             setProbeHits(res.hits)
             handleProbePreview(res.hits[0])
+            preloadAllProbeHits(res.hits)
         } catch (err: any) {
             setProbeError(`Lỗi gọi API: ${err?.message || err}`)
         } finally {
@@ -176,31 +234,149 @@ const ImageSettings: React.FC<ImageSettingsProps> = ({ onClose, onSaved }) => {
         }
     }
 
+    // Background-preload all probe hits.
+    // If thumb server is configured: lightweight — just create <Image> per HTTP URL,
+    // browser handles cache & connection pooling. No IPC, no main-process work.
+    // Otherwise: fall back to local IPC thumbnail (serial).
+    const preloadAllProbeHits = async (hits: Array<{ path: string; ext: string }>) => {
+        if (hits.length === 0) return
+
+        const myGen = probePreloadGenRef.current
+        const useHttp = !!thumbCfg.enabled && !!thumbCfg.baseURL && !!thumbCfg.nasPrefix
+
+        await new Promise((r) => setTimeout(r, 100))
+        if (probePreloadGenRef.current !== myGen) return
+
+        const total = hits.length
+        let done = 1
+        setProbePreloadProgress({ done, total })
+
+        if (useHttp) {
+            for (const item of hits) {
+                if (probePreloadGenRef.current !== myGen) return
+                if (probeStartedRef.current.has(item.path)) continue
+                probeStartedRef.current.add(item.path)
+                if (item === hits[0]) continue
+                const url = toThumbUrl(item.path, thumbCfg)
+                if (url) {
+                    const img = new Image()
+                    img.onload = () => {
+                        if (probePreloadGenRef.current !== myGen) return
+                        done++
+                        setProbePreloadProgress({ done, total })
+                    }
+                    img.onerror = () => {
+                        if (probePreloadGenRef.current !== myGen) return
+                        done++
+                        setProbePreloadProgress({ done, total })
+                    }
+                    img.src = url
+                } else {
+                    done++
+                    setProbePreloadProgress({ done, total })
+                }
+            }
+            return
+        }
+
+        // Fallback: local IPC
+        if (!window.electronAPI) return
+        const activePath = hits[0]?.path
+        const fast = hits.filter((h) => DIRECT_EXTS.has(h.ext) && h.path !== activePath)
+        const slow = hits.filter((h) => CONVERT_EXTS.has(h.ext) && h.path !== activePath)
+        const queue = [...fast, ...slow]
+
+        const worker = async () => {
+            while (queue.length > 0) {
+                if (probePreloadGenRef.current !== myGen) return
+                const item = queue.shift()
+                if (!item) return
+                if (probeStartedRef.current.has(item.path)) {
+                    done++
+                    setProbePreloadProgress({ done, total })
+                    continue
+                }
+                probeStartedRef.current.add(item.path)
+
+                try {
+                    if (DIRECT_EXTS.has(item.ext)) {
+                        const thumb = await window.electronAPI!.getImageThumbnail(item.path, 1400)
+                        if (probePreloadGenRef.current !== myGen) return
+                        if (thumb) {
+                            const img = new Image()
+                            img.src = toSafeImageUrl(thumb)
+                        }
+                    } else if (CONVERT_EXTS.has(item.ext)) {
+                        await window.electronAPI!.convertFileToImage(item.path)
+                        if (probePreloadGenRef.current !== myGen) return
+                    }
+                } catch {
+                    probeStartedRef.current.delete(item.path)
+                }
+
+                done++
+                if (probePreloadGenRef.current === myGen) {
+                    setProbePreloadProgress({ done, total })
+                }
+                await new Promise((r) => setTimeout(r, 0))
+            }
+        }
+        await worker()
+    }
+
     const handleProbePreview = async (hit: { path: string; ext: string; name: string }) => {
         if (!window.electronAPI) return
-        setProbePreviewLoading(true)
         setProbePreview('')
         setProbePreviewName(hit.name)
-        try {
-            const needsConvert = hit.ext === 'ai' || hit.ext === 'pdf'
-            const data = needsConvert
-                ? await window.electronAPI.convertFileToImage(hit.path)
-                : await window.electronAPI.getImageData(hit.path)
-            if (data) {
-                setProbePreview(data)
-            } else {
-                setProbeError(`Không đọc được file: ${hit.path}. Kiểm tra NAS đã mount chưa.`)
-            }
-        } catch (err: any) {
-            setProbeError(`Lỗi load ảnh: ${err?.message || err}`)
-        } finally {
-            setProbePreviewLoading(false)
+        setProbePreviewLoading(true)
+
+        // Fastest path: HTTP thumb server (pre-built WebP from nginx)
+        const httpThumb = toThumbUrl(hit.path, thumbCfg)
+        if (httpThumb) {
+            setProbePreview(httpThumb)
+            return
         }
+
+        // Fast path: raster → thumbnail (resized via nativeImage, cached on disk), then safe-image
+        if (DIRECT_EXTS.has(hit.ext)) {
+            try {
+                const thumbPath = await window.electronAPI.getImageThumbnail(hit.path, 1400)
+                if (thumbPath) {
+                    setProbePreview(toSafeImageUrl(thumbPath))
+                } else {
+                    setProbePreview(toSafeImageUrl(hit.path))
+                }
+            } catch {
+                setProbePreview(toSafeImageUrl(hit.path))
+            }
+            // Keep loading state true — <img onLoad> will clear it
+            return
+        }
+
+        // Slow path: AI/PDF — convert then render
+        if (CONVERT_EXTS.has(hit.ext)) {
+            try {
+                const data = await window.electronAPI.convertFileToImage(hit.path)
+                if (data) {
+                    setProbePreview(data)
+                } else {
+                    setProbeError(`Không đọc được file: ${hit.path}. Kiểm tra NAS đã mount chưa.`)
+                    setProbePreviewLoading(false)
+                }
+            } catch (err: any) {
+                setProbeError(`Lỗi load ảnh: ${err?.message || err}`)
+                setProbePreviewLoading(false)
+            }
+            return
+        }
+
+        // Unknown ext — try protocol URL anyway
+        setProbePreview(toSafeImageUrl(hit.path))
     }
 
     return (
-        <div className="settings-overlay">
-            <div className="settings-modal">
+        <div className="settings-overlay" onClick={onClose}>
+            <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
                 <div className="settings-header">
                     <h2>Setting Hình Ảnh</h2>
                     <button className="close-btn" onClick={onClose}>×</button>
@@ -331,6 +507,70 @@ const ImageSettings: React.FC<ImageSettingsProps> = ({ onClose, onSaved }) => {
                         </div>
                     </div>
 
+                    {/* Thumbnail server (HTTP) — pre-rendered WebP from nginx */}
+                    <div className="settings-section">
+                        <h3>Thumbnail Server (WebP)</h3>
+                        <small style={{ color: 'var(--muted-2)', fontSize: 11.5, display: 'block', marginBottom: 12 }}>
+                            Khi bật, app lấy WebP đã render sẵn từ HTTP server thay vì đọc file gốc trên NAS.
+                            Nhanh hơn nhiều, không tốn IPC, không cần ImageMagick.
+                        </small>
+
+                        <div className="form-group">
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    checked={thumbCfg.enabled}
+                                    onChange={(e) => updateThumb('enabled', e.target.checked)}
+                                />
+                                Bật Thumbnail Server
+                            </label>
+                        </div>
+
+                        <div className="form-group">
+                            <label>Base URL:</label>
+                            <input
+                                type="text"
+                                value={thumbCfg.baseURL}
+                                onChange={(e) => updateThumb('baseURL', e.target.value)}
+                                placeholder="http://172.26.207.206:8081/thumbs/"
+                            />
+                        </div>
+
+                        <div className="form-group">
+                            <label>NAS prefix (sẽ bị strip khỏi path):</label>
+                            <input
+                                type="text"
+                                value={thumbCfg.nasPrefix}
+                                onChange={(e) => updateThumb('nasPrefix', e.target.value)}
+                                placeholder="/Volumes/Designer ZenE/"
+                            />
+                            <small style={{ color: 'var(--muted-2)', fontSize: 11, display: 'block', marginTop: 4 }}>
+                                Path từ ES bắt đầu bằng prefix này sẽ được map sang URL thumb.
+                            </small>
+                        </div>
+
+                        <div className="form-group">
+                            <label>Đuôi file thumb:</label>
+                            <input
+                                type="text"
+                                value={thumbCfg.extension}
+                                onChange={(e) => updateThumb('extension', e.target.value)}
+                                placeholder=".webp"
+                            />
+                        </div>
+
+                        <div className="form-group">
+                            <small style={{ color: 'var(--muted-2)', fontSize: 11.5 }}>
+                                Ví dụ map: <br />
+                                <code style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5 }}>{thumbCfg.nasPrefix}foo/bar.psd</code>
+                                {' → '}
+                                <code style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5 }}>
+                                    {thumbCfg.baseURL.replace(/\/$/, '')}/foo/bar.psd{thumbCfg.extension}
+                                </code>
+                            </small>
+                        </div>
+                    </div>
+
                     {/* Probe: thử tìm ảnh với task code bất kỳ, không cần order */}
                     <div className="settings-section">
                         <h3>Thử tìm ảnh (không cần order)</h3>
@@ -370,7 +610,16 @@ const ImageSettings: React.FC<ImageSettingsProps> = ({ onClose, onSaved }) => {
                         {probeHits.length > 0 && (
                             <div className="probe-results">
                                 <div className="probe-results-header">
-                                    {probeHits.length} file tìm thấy
+                                    <span>{probeHits.length} file tìm thấy</span>
+                                    {probePreloadProgress.total > 0 && probePreloadProgress.done < probePreloadProgress.total && (
+                                        <span className="gallery-preload-badge" title="Đang cache ngầm tất cả file">
+                                            <span className="spinner"></span>
+                                            Cache {probePreloadProgress.done}/{probePreloadProgress.total}
+                                        </span>
+                                    )}
+                                    {probePreloadProgress.total > 0 && probePreloadProgress.done === probePreloadProgress.total && (
+                                        <span className="gallery-preload-badge done">✓ Cached</span>
+                                    )}
                                 </div>
                                 <ul className="probe-hits">
                                     {probeHits.map((h) => (
@@ -393,14 +642,31 @@ const ImageSettings: React.FC<ImageSettingsProps> = ({ onClose, onSaved }) => {
                                 </ul>
 
                                 <div className="probe-preview">
-                                    {probePreviewLoading ? (
-                                        <div className="probe-preview-status">Đang load ảnh...</div>
-                                    ) : probePreview ? (
-                                        <img
-                                            src={probePreview}
-                                            alt={probePreviewName}
-                                            className="probe-preview-image"
-                                        />
+                                    {probePreview ? (
+                                        <>
+                                            {probePreviewLoading && (
+                                                <div className="probe-preview-overlay">
+                                                    <div className="spinner"></div>
+                                                    <span>Đang tải ảnh...</span>
+                                                </div>
+                                            )}
+                                            <img
+                                                key={probePreview}
+                                                src={probePreview}
+                                                alt={probePreviewName}
+                                                className="probe-preview-image"
+                                                onLoad={() => setProbePreviewLoading(false)}
+                                                onError={() => {
+                                                    setProbePreviewLoading(false)
+                                                    setProbeError(`Không load được ảnh: ${probePreviewName}`)
+                                                }}
+                                            />
+                                        </>
+                                    ) : probePreviewLoading ? (
+                                        <div className="probe-preview-status">
+                                            <div className="spinner"></div>
+                                            <span>Đang tìm ảnh...</span>
+                                        </div>
                                     ) : (
                                         <div className="probe-preview-status">Click 1 file phía trên để xem preview.</div>
                                     )}

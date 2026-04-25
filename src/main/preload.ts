@@ -16,6 +16,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     createSampleData: () => ipcRenderer.invoke('create-sample-data'),
     checkFileExists: (filePath: string) => ipcRenderer.invoke('check-file-exists', filePath),
     getImageData: (filePath: string) => ipcRenderer.invoke('get-image-data', filePath),
+    getImageThumbnail: (filePath: string, maxDim?: number) => ipcRenderer.invoke('get-image-thumbnail', filePath, maxDim),
+    getThumbCacheStats: () => ipcRenderer.invoke('get-thumb-cache-stats'),
+    clearThumbCache: () => ipcRenderer.invoke('clear-thumb-cache'),
     listFiles: (dirPath: string) => ipcRenderer.invoke('list-files', dirPath),
     convertFileToImage: (filePath: string) => ipcRenderer.invoke('convert-file-to-image', filePath),
     printBarcode: (barcodeData: string, orderInfo?: any) => ipcRenderer.invoke('print-barcode', barcodeData, orderInfo),
@@ -42,6 +45,9 @@ declare global {
             createSampleData: () => Promise<{ success: boolean, message: string }>
             checkFileExists: (filePath: string) => Promise<boolean>
             getImageData: (filePath: string) => Promise<string | null>
+            getImageThumbnail: (filePath: string, maxDim?: number) => Promise<string | null>
+            getThumbCacheStats: () => Promise<{ count: number; totalBytes: number; dir?: string; error?: string }>
+            clearThumbCache: () => Promise<{ success: boolean; deleted: number; freedBytes: number; error?: string }>
             listFiles: (dirPath: string) => Promise<string[]>
             convertFileToImage: (filePath: string) => Promise<string | null>
             exportOrderToExcel: (order: any, exportFolder: string) => Promise<any>

@@ -125,7 +125,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onLoginError }) => {
                 <div className="login-header">
                     <div className="login-logo">
                         <span className="logo-icon">🏷️</span>
-                        <h1>GoTagSight</h1>
+                        <h1>iSuccess Scan Barcode</h1>
                     </div>
                     <p className="login-subtitle">Đăng nhập để tiếp tục</p>
                 </div>

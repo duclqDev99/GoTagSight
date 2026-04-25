@@ -74,12 +74,20 @@ export interface ElasticsearchConfig {
     fallbackToFilesystem: boolean
 }
 
+export interface ThumbServerConfig {
+    enabled: boolean
+    baseURL: string         // e.g. http://172.26.207.206:8081/thumbs/
+    nasPrefix: string       // path to strip from ES `path` (e.g. /Volumes/Designer ZenE/)
+    extension: string       // appended to original filename (e.g. .webp)
+}
+
 export interface AppConfig {
     database: DatabaseConfig
     apiConfig: ApiConfig // Thêm API config
     imagePath: string
     barTenderConfig: BarTenderConfig
     elasticsearchConfig?: ElasticsearchConfig
+    thumbServerConfig?: ThumbServerConfig
     encryptionKey: string
 }
 
@@ -390,6 +398,44 @@ class ConfigManager {
     getElasticsearchConfig(): ElasticsearchConfig | null {
         const config = this.loadConfig()
         return config?.elasticsearchConfig || null
+    }
+
+    // Cập nhật cấu hình Thumbnail Server
+    updateThumbServerConfig(thumbConfig: ThumbServerConfig): void {
+        const current = this.loadConfig()
+        if (current) {
+            current.thumbServerConfig = thumbConfig
+            this.config = current
+        } else {
+            // Bootstrap a minimal config — caller should set the rest separately.
+            this.config = {
+                database: { host: 'localhost', port: 3306, user: '', password: '', database: '', tableName: 'order_details' },
+                apiConfig: {
+                    baseURL: process.env.VITE_API_BASE_URL || 'http://localhost:8000',
+                    timeout: 10000, username: '', password: '', apiKey: '',
+                    environment: 'development',
+                    environmentUrls: { development: '', staging: '', production: '', custom: '' }
+                },
+                imagePath: '',
+                barTenderConfig: {
+                    enabled: false, method: 'file',
+                    filePath: path.join(process.cwd(), 'print_queue.json'),
+                    excelPath: path.join(process.cwd(), 'bartender_export.xlsx'),
+                    templateName: 'Default', printQuantity: 1, autoPrint: false,
+                    bartenderPath: '', templatePath: '', printScriptPath: '', printMethod: 'direct'
+                },
+                thumbServerConfig: thumbConfig,
+                encryptionKey: this.encryptionKey
+            }
+        }
+        this.saveConfig(this.config)
+        console.log('Thumb server config saved:', thumbConfig)
+    }
+
+    // Lấy cấu hình Thumbnail Server
+    getThumbServerConfig(): ThumbServerConfig | null {
+        const config = this.loadConfig()
+        return config?.thumbServerConfig || null
     }
 
     // Lấy cấu hình database
