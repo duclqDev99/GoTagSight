@@ -58,12 +58,15 @@
         "files": [
             "dist/**/*",
             "node_modules/**/*",
-            "demo-images/**/*"
+            "demo-images/**/*",
+            "images/**/*"
         ],
         "mac": {
-            "category": "public.app-category.productivity"
+            "category": "public.app-category.productivity",
+            "icon": "images/logo/logo-warehouse.png"
         },
         "win": {
+            "icon": "images/logo/logo-warehouse.png",
             "target": [
                 {
                     "target": "nsis",
@@ -73,6 +76,9 @@
                     ]
                 }
             ]
+        },
+        "linux": {
+            "icon": "images/logo/logo-warehouse.png"
         },
         "nsis": {
             "oneClick": false,

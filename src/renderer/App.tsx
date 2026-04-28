@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import Scanner from './components/Scanner'
 import OrderView from './components/OrderView'
 import Settings from './components/Settings'
@@ -6,6 +6,7 @@ import BarTenderSettings from './components/BarTenderSettings'
 import ImageSettings from './components/ImageSettings'
 import Notification from './components/Notification'
 import Login from './components/Login'
+import logoUrl from '../../images/logo/logo-warehouse.png'
 import './App.css'
 
 interface ApiConfig {
@@ -142,8 +143,12 @@ function App() {
     const [showSettings, setShowSettings] = useState(false)
     const [showBarTenderSettings, setShowBarTenderSettings] = useState(false)
     const [showImageSettings, setShowImageSettings] = useState(false)
+    const [showUserMenu, setShowUserMenu] = useState(false)
+    const userMenuRef = useRef<HTMLDivElement>(null)
     const [isScanning, setIsScanning] = useState(false)
-    const [isConfigValid, setIsConfigValid] = useState(false)
+    // Order search uses hardcoded Meilisearch URL — no apiConfig.baseURL gate.
+    // Settings is now optional, opened manually from the user menu.
+    const isConfigValid = true
     const [isLoadingConfig, setIsLoadingConfig] = useState(true)
     const [notifications, setNotifications] = useState<Array<{
         id: string
@@ -156,11 +161,6 @@ function App() {
     const [authToken, setAuthToken] = useState<string | null>(null)
     const [user, setUser] = useState<any>(null)
 
-    // Kiểm tra config có hợp lệ không
-    const validateConfig = (config: AppConfig): boolean => {
-        return !!(config.apiConfig?.baseURL) // Chỉ cần baseURL là đủ
-    }
-
     useEffect(() => {
         const loadConfig = async () => {
             try {
@@ -168,25 +168,11 @@ function App() {
                     const loadedConfig: AppConfig = await window.electronAPI.getConfig()
                     if (loadedConfig) {
                         setConfig(loadedConfig)
-                        const isValid = validateConfig(loadedConfig)
-                        setIsConfigValid(isValid)
-
-                        // Nếu config không hợp lệ, tự động mở Settings
-                        if (!isValid) {
-                            setShowSettings(true)
-                            addNotification('API configuration required. Please configure your API settings.', 'warning')
-                        }
-                    } else {
-                        // Không có config, tự động mở Settings
-                        setShowSettings(true)
-                        addNotification('No API configuration found. Please configure your API settings.', 'warning')
                     }
                 }
             } catch (error) {
                 console.error('Failed to load config:', error)
-                // Lỗi load config, tự động mở Settings
-                setShowSettings(true)
-                addNotification('Failed to load configuration. Please configure your API settings.', 'error')
+                addNotification('Failed to load configuration.', 'error')
             } finally {
                 setIsLoadingConfig(false)
             }
@@ -272,6 +258,38 @@ function App() {
             document.removeEventListener('keydown', handleKeyPress)
         }
     }, [selectedOrder]) // Chỉ re-run khi selectedOrder thay đổi
+
+    // Close user menu on outside click
+    useEffect(() => {
+        if (!showUserMenu) return
+        const onDown = (e: MouseEvent) => {
+            if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+                setShowUserMenu(false)
+            }
+        }
+        document.addEventListener('mousedown', onDown)
+        return () => document.removeEventListener('mousedown', onDown)
+    }, [showUserMenu])
+
+    // Derive a friendly display name + initials from the user object.
+    const getDisplayName = (): string => {
+        if (!user) return 'User'
+        return (
+            user.name ||
+            user.full_name ||
+            user.fullName ||
+            user.username ||
+            (typeof user.email === 'string' ? user.email.split('@')[0] : '') ||
+            'User'
+        )
+    }
+    const getUserEmail = (): string => (user && typeof user.email === 'string' ? user.email : '')
+    const getInitials = (): string => {
+        const name = getDisplayName()
+        const parts = name.trim().split(/\s+/)
+        if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+        return name.slice(0, 2).toUpperCase()
+    }
 
     const addNotification = (message: string, type: 'success' | 'error' | 'warning' | 'info') => {
         const id = Date.now().toString()
@@ -485,17 +503,11 @@ function App() {
         const updatedConfig = { ...config, ...newConfig }
         setConfig(updatedConfig)
 
-        // Validate config
-        const isValid = validateConfig(updatedConfig)
-        setIsConfigValid(isValid)
-
-        // Save config
         if (window.electronAPI) {
             window.electronAPI.setConfig(updatedConfig)
         }
 
-        // Close settings if config is valid
-        if (isValid && showSettings) {
+        if (showSettings) {
             setShowSettings(false)
             addNotification('Configuration updated successfully!', 'success')
         }
@@ -660,7 +672,10 @@ function App() {
                     ) : (
                         <>
                             <div className="app-header">
-                                <h1 className="app-title">iSuccess Scan Barcode</h1>
+                                <h1 className="app-title">
+                                    <img src={logoUrl} alt="" className="app-logo" />
+                                    iSuccess Scan Barcode
+                                </h1>
                                 <div className="header-controls">
                                     <div className="total-orders">Total orders: {totalOrders}</div>
                                     <div className="header-buttons">
@@ -680,31 +695,62 @@ function App() {
                                         >
                                             🗑️ Clear List
                                         </button>
-                                        <button
-                                            className="settings-btn"
-                                            onClick={() => setShowImageSettings(true)}
-                                        >
-                                            🖼️ Hình ảnh
-                                        </button>
-                                        <button
-                                            className="settings-btn"
-                                            onClick={() => setShowSettings(!showSettings)}
-                                        >
-                                            ⚙️ Settings
-                                        </button>
-                                        <button
-                                            className="settings-btn"
-                                            onClick={() => setShowBarTenderSettings(!showBarTenderSettings)}
-                                        >
-                                            🏷️ BarTender
-                                        </button>
-                                        <button
-                                            className="logout-btn"
-                                            onClick={handleLogout}
-                                            title="Đăng xuất"
-                                        >
-                                            🚪 Logout
-                                        </button>
+                                        <div className="user-menu" ref={userMenuRef}>
+                                            <button
+                                                className={`user-menu-trigger ${showUserMenu ? 'open' : ''}`}
+                                                onClick={() => setShowUserMenu(v => !v)}
+                                                title={getUserEmail() || getDisplayName()}
+                                            >
+                                                <span className="user-avatar">{getInitials()}</span>
+                                                <span className="user-name">{getDisplayName()}</span>
+                                                <svg className="user-menu-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                                    <polyline points="6 9 12 15 18 9" />
+                                                </svg>
+                                            </button>
+
+                                            {showUserMenu && (
+                                                <div className="user-menu-dropdown">
+                                                    <div className="user-menu-info">
+                                                        <div className="user-menu-info-name">{getDisplayName()}</div>
+                                                        {getUserEmail() && (
+                                                            <div className="user-menu-info-email">{getUserEmail()}</div>
+                                                        )}
+                                                    </div>
+                                                    <div className="user-menu-section">
+                                                        <button
+                                                            className="user-menu-item"
+                                                            onClick={() => { setShowImageSettings(true); setShowUserMenu(false) }}
+                                                        >
+                                                            <span className="user-menu-icon">🖼️</span>
+                                                            <span>Hình ảnh</span>
+                                                        </button>
+                                                        <button
+                                                            className="user-menu-item"
+                                                            onClick={() => { setShowSettings(true); setShowUserMenu(false) }}
+                                                        >
+                                                            <span className="user-menu-icon">⚙️</span>
+                                                            <span>Cấu hình API</span>
+                                                        </button>
+                                                        <button
+                                                            className="user-menu-item"
+                                                            onClick={() => { setShowBarTenderSettings(true); setShowUserMenu(false) }}
+                                                        >
+                                                            <span className="user-menu-icon">🏷️</span>
+                                                            <span>BarTender</span>
+                                                        </button>
+                                                    </div>
+                                                    <div className="user-menu-divider"></div>
+                                                    <button
+                                                        className="user-menu-item user-menu-item-danger"
+                                                        onClick={() => { setShowUserMenu(false); handleLogout() }}
+                                                        title="Đăng xuất"
+                                                    >
+                                                        <span className="user-menu-icon">🚪</span>
+                                                        <span>Đăng xuất</span>
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </div>

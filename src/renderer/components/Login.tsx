@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import logoUrl from '../../../images/logo/logo-warehouse.png'
 import './Login.css'
 
 interface LoginProps {
@@ -121,13 +122,79 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onLoginError }) => {
 
     return (
         <div className="login-container">
-            <div className="login-card">
-                <div className="login-header">
-                    <div className="login-logo">
-                        <span className="logo-icon">🏷️</span>
-                        <h1>iSuccess Scan Barcode</h1>
+            {/* Left pane: branding + warehouse-themed decoration */}
+            <aside className="login-hero">
+                <div className="login-hero-bg" aria-hidden="true">
+                    <svg className="login-hero-pattern" viewBox="0 0 800 800" preserveAspectRatio="xMidYMid slice">
+                        <defs>
+                            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="1" />
+                            </pattern>
+                        </defs>
+                        <rect width="800" height="800" fill="url(#grid)" />
+                        {/* Stacked boxes silhouette */}
+                        <g fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.08)" strokeWidth="1.5">
+                            <rect x="80" y="500" width="140" height="110" />
+                            <rect x="80" y="390" width="140" height="110" />
+                            <rect x="220" y="500" width="140" height="110" />
+                            <rect x="150" y="280" width="140" height="110" />
+                        </g>
+                        {/* Right side stack */}
+                        <g fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.07)" strokeWidth="1.5">
+                            <rect x="560" y="540" width="120" height="90" />
+                            <rect x="560" y="450" width="120" height="90" />
+                            <rect x="680" y="540" width="120" height="90" />
+                        </g>
+                        {/* Barcode lines */}
+                        <g fill="rgba(255,255,255,0.06)">
+                            <rect x="540" y="120" width="3" height="60" />
+                            <rect x="546" y="120" width="6" height="60" />
+                            <rect x="556" y="120" width="2" height="60" />
+                            <rect x="562" y="120" width="4" height="60" />
+                            <rect x="570" y="120" width="3" height="60" />
+                            <rect x="577" y="120" width="7" height="60" />
+                            <rect x="588" y="120" width="2" height="60" />
+                            <rect x="594" y="120" width="5" height="60" />
+                            <rect x="603" y="120" width="3" height="60" />
+                            <rect x="610" y="120" width="2" height="60" />
+                            <rect x="616" y="120" width="6" height="60" />
+                            <rect x="626" y="120" width="3" height="60" />
+                        </g>
+                    </svg>
+                </div>
+
+                <div className="login-hero-content">
+                    <div className="login-hero-brand">
+                        <img src={logoUrl} alt="" className="login-hero-logo" />
+                        <div className="login-hero-text">
+                            <h1>iSuccess</h1>
+                            <span>Scan Barcode</span>
+                        </div>
                     </div>
-                    <p className="login-subtitle">Đăng nhập để tiếp tục</p>
+
+                    <p className="login-hero-tagline">
+                        Quét, quản lý đơn hàng và kiểm kho — tối ưu cho đội vận hành.
+                    </p>
+
+                    <ul className="login-hero-bullets">
+                        <li>Tích hợp Elasticsearch tra cứu ảnh từ NAS</li>
+                        <li>In barcode trực tiếp qua BarTender</li>
+                        <li>Quản lý trạng thái đơn theo thời gian thực</li>
+                    </ul>
+
+                    <div className="login-hero-meta">
+                        <span>v1.0.0</span>
+                        <span className="login-hero-meta-dot">·</span>
+                        <span>© 2024 iSuccess Company</span>
+                    </div>
+                </div>
+            </aside>
+
+            {/* Right pane: login form */}
+            <main className="login-card">
+                <div className="login-header">
+                    <h2 className="login-title">Đăng nhập</h2>
+                    <p className="login-subtitle">Nhập thông tin để tiếp tục.</p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="login-form">
@@ -193,7 +260,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onLoginError }) => {
                     <p>Phiên bản 1.0.0</p>
                     <p>© 2024 iSuccess Company</p>
                 </div>
-            </div>
+            </main>
         </div>
     )
 }

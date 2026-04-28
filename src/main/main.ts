@@ -34,7 +34,7 @@ function createWindow() {
             contextIsolation: true,
             preload: path.join(__dirname, 'preload.js')
         },
-        icon: path.join(__dirname, '../assets/icon.png')
+        icon: path.join(__dirname, '../images/logo/logo-warehouse.png')
     })
 
     // Load the app
@@ -95,6 +95,17 @@ app.whenReady().then(() => {
             callback({ error: -2 })
         }
     })
+
+    // macOS dev mode: BrowserWindow.icon doesn't affect dock — must use app.dock.setIcon()
+    if (process.platform === 'darwin' && app.dock) {
+        const iconPath = path.join(__dirname, '../images/logo/logo-warehouse.png')
+        if (fs.existsSync(iconPath)) {
+            const dockIcon = nativeImage.createFromPath(iconPath)
+            if (!dockIcon.isEmpty()) {
+                app.dock.setIcon(dockIcon)
+            }
+        }
+    }
 
     createWindow()
 })
