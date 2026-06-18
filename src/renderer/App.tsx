@@ -58,6 +58,9 @@ interface AppConfig {
     thumbServerConfig?: ThumbServerConfig
 }
 
+// Bump this when the OrderDetail shape changes so cached scans get cleared on next load.
+const ORDERS_STORAGE_VERSION = '2'
+
 interface OrderDetail {
     id: number
     order_id: number
@@ -67,6 +70,7 @@ interface OrderDetail {
     task_code_front: string
     task_code_back: string
     product_name_new: string
+    product_type: string
     customer_name: string
     description_task: string
     description_task_front: string
@@ -102,11 +106,12 @@ interface OrderDetail {
 function App() {
     const [config, setConfig] = useState<AppConfig>({
         apiConfig: {
-            baseURL: '', // User will configure this
+            // Defaults so a fresh machine works without manual setup; override in Settings.
+            baseURL: 'http://103.139.203.10:7700',
             timeout: 10000,
             username: '',
             password: '',
-            apiKey: ''
+            apiKey: 'cbf33c1c50e471743a3212352244936d4cd4841f781506d19cc9c1a66ccb691e'
         },
         imagePath: '/Volumes/Designer ZenE',
         barTenderConfig: {
@@ -120,7 +125,9 @@ function App() {
             printMethod: 'direct'
         },
         elasticsearchConfig: {
-            enabled: true,
+            // Disabled by default: when the ES host is unreachable, the lookup stalls every
+            // image load by up to its timeout. Images load straight from thumb server / NAS.
+            enabled: false,
             baseURL: 'http://172.26.207.206:9200',
             index: 'nas_files',
             searchFields: ['name^3', 'attachment.content', 'path'],
@@ -131,7 +138,7 @@ function App() {
         thumbServerConfig: {
             enabled: true,
             baseURL: 'http://172.26.207.206:8081/thumbs/',
-            nasPrefix: '/Volumes/Designer ZenE/',
+            nasPrefix: '/Volumes/',
             extension: '.webp'
         }
     })
@@ -167,6 +174,18 @@ function App() {
                 if (window.electronAPI) {
                     const loadedConfig: AppConfig = await window.electronAPI.getConfig()
                     if (loadedConfig) {
+                        // One-time migration: Elasticsearch lookups were stalling every image
+                        // load by up to 8s whenever the ES host was unreachable. Turn it off
+                        // once in the saved config; images then load directly from the thumb
+                        // server / NAS. The user can re-enable it later in Image Settings.
+                        if (
+                            loadedConfig.elasticsearchConfig?.enabled &&
+                            localStorage.getItem('esDisabledMigration') !== '1'
+                        ) {
+                            loadedConfig.elasticsearchConfig.enabled = false
+                            localStorage.setItem('esDisabledMigration', '1')
+                            window.electronAPI.setConfig(loadedConfig)
+                        }
                         setConfig(loadedConfig)
                     }
                 }
@@ -180,15 +199,22 @@ function App() {
 
         loadConfig()
 
-        // Load saved orders from localStorage
-        const savedOrders = localStorage.getItem('scannedOrders')
-        if (savedOrders) {
-            try {
-                const parsedOrders = JSON.parse(savedOrders)
-                setOrders(parsedOrders)
-                setTotalOrders(parsedOrders.length)
-            } catch (error) {
-                console.error('Failed to parse saved orders:', error)
+        // Load saved orders from localStorage. Bump ORDERS_STORAGE_VERSION whenever the
+        // OrderDetail shape changes so stale entries (e.g. missing product_type / wrong
+        // price parsed before the API fix) are dropped instead of rendering incomplete.
+        if (localStorage.getItem('ordersVersion') !== ORDERS_STORAGE_VERSION) {
+            localStorage.removeItem('scannedOrders')
+            localStorage.setItem('ordersVersion', ORDERS_STORAGE_VERSION)
+        } else {
+            const savedOrders = localStorage.getItem('scannedOrders')
+            if (savedOrders) {
+                try {
+                    const parsedOrders = JSON.parse(savedOrders)
+                    setOrders(parsedOrders)
+                    setTotalOrders(parsedOrders.length)
+                } catch (error) {
+                    console.error('Failed to parse saved orders:', error)
+                }
             }
         }
 
@@ -653,7 +679,7 @@ function App() {
                         >
                             <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
                                 <div className="settings-header">
-                                    <h2>Database Configuration Required</h2>
+                                    <h2>Cấu hình API</h2>
                                     {isConfigValid && (
                                         <button
                                             className="close-btn"
@@ -801,17 +827,16 @@ function App() {
                                                             <div key={orderId} className="order-group">
                                                                 <div className="order-group-header compact-grid">
                                                                     <div className="order-info">
-                                                                        <h5>#{firstItem.origin_id || orderId} - {firstItem.customer_name || 'Unknown Customer'}</h5>
+                                                                        <div className="order-customer">{firstItem.customer_name || 'Unknown Customer'}</div>
+                                                                        <div className="order-id">#{firstItem.origin_id || orderId}</div>
                                                                     </div>
                                                                     <div className="order-meta">
                                                                         <div className="order-stats">
-                                                                            <span className="item-count">{totalItems}/{totalItemsInOrder} items</span>
-                                                                            {/* <span className="quantity-count">Qty: {totalQuantity}</span> */}
-                                                                            <span className="platform">{firstItem.platform}</span>
+                                                                            <span className="item-count">{totalItems}/{totalItemsInOrder}</span>
+                                                                            {firstItem.platform && (
+                                                                                <span className="platform">{firstItem.platform}</span>
+                                                                            )}
                                                                         </div>
-                                                                        {/* <div className="shipping-info">
-                                                                            📍 {firstItem.shipping_city}, {firstItem.shipping_state} {firstItem.shipping_zip}
-                                                                        </div> */}
                                                                     </div>
                                                                 </div>
 
@@ -829,10 +854,22 @@ function App() {
                                                                     </div>
                                                                     <div className="product-name">{order.product_name_new}</div> */}
                                                                                 <div className="item-details">
-                                                                                    <span className="task-code">Task Code: {order.task_code_front}</span>
-                                                                                    <span className="quantity">Qty: {order.quantity}</span>
-                                                                                    <span className="price">${order.price}</span>
-                                                                                    <span className="status-code">{order.status_code_string}</span>
+                                                                                    <span
+                                                                                        className="task-code"
+                                                                                        title={order.task_code_front || order.task_code || order.product_type}
+                                                                                    >
+                                                                                        {order.task_code_front || order.task_code || order.product_type || '—'}
+                                                                                    </span>
+                                                                                    {order.product_type && (
+                                                                                        <span className="type-tag" title={`Type: ${order.product_type}`}>{order.product_type}</span>
+                                                                                    )}
+                                                                                    {order.size_style && (
+                                                                                        <span className="size-tag" title={`Size: ${order.size_style}`}>{order.size_style}</span>
+                                                                                    )}
+                                                                                    <span className="quantity">×{order.quantity}</span>
+                                                                                    {order.status_code_string && (
+                                                                                        <span className="status-code">{order.status_code_string}</span>
+                                                                                    )}
                                                                                 </div>
                                                                                 {/* <div className="status-info">
                                                                         <span className={`status ${order.status}`}>{order.status}</span>
@@ -878,7 +915,13 @@ function App() {
                                     </div>
                                     <div className="panel-content">
                                         {selectedOrder ? (
-                                            <OrderView config={config} order={selectedOrder} showImageOnly={true} />
+                                            <OrderView
+                                                config={config}
+                                                order={selectedOrder}
+                                                showImageOnly={true}
+                                                scannedInOrder={orders.filter(o => o.order_id === selectedOrder.order_id).length}
+                                                totalInOrder={selectedOrder.total_quantity || 0}
+                                            />
                                         ) : (
                                             <div className="empty-state">
                                                 <div className="empty-icon">📦</div>

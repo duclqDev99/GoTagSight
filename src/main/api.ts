@@ -27,6 +27,7 @@ export interface OrderDetail {
     task_code_front: string
     task_code_back: string
     product_name_new: string
+    product_type: string
     customer_name: string
     description_task: string
     description_task_front: string
@@ -306,17 +307,45 @@ export class ApiService {
                 q: '',
                 filter: `task_code_front_prefix = "${taskCode}"`,
                 sort: ['created_at:desc'],
+                // Retrieve every field the UI actually displays. The previous short list
+                // dropped product_type, price, size/color/material, descriptions and
+                // status_code_string, so those rendered empty (and price showed $0).
                 attributesToRetrieve: [
                     'id',
                     'order_id',
-                    'quantity',
-                    'order',
                     'origin_id',
-                    'task_code_front_prefix',
+                    'order_origin_id',
+                    'order_platform',
+                    'product_id',
+                    'product_type',
+                    'quantity',
                     'total_items_in_order',
+                    'task_code',
                     'task_code_front',
                     'task_code_back',
-                    'created_at'
+                    'task_code_front_prefix',
+                    'description_task',
+                    'description_task_front',
+                    'description_task_back',
+                    'score_task',
+                    'score_task_front',
+                    'score_task_back',
+                    'status',
+                    'status_code_string',
+                    'price',
+                    'condition',
+                    'size_style',
+                    'pack',
+                    'color',
+                    'material',
+                    'layout_style',
+                    'personalization',
+                    'link',
+                    'line_in_order',
+                    'line_in_quantity',
+                    'created_at',
+                    'updated_at',
+                    'order'
                 ],
                 hitsPerPage: 10,
                 page: 1
@@ -336,20 +365,29 @@ export class ApiService {
                 const order = item.order || {}
                 const orderDetail = item.order?.order_details?.[0] || {}
 
-                console.log('API Debug - item:', JSON.stringify(item, null, 2))
-                console.log('API Debug - order:', JSON.stringify(order, null, 2))
-                console.log('API Debug - origin_id from order:', order.origin_id)
-                console.log('API Debug - origin_id from item:', item.origin_id)
+                // order.customer_name is frequently null → fall back to first + last name.
+                const fullName = `${order.first_name ?? ''} ${order.last_name ?? ''}`.trim()
+                const customerName = order.customer_name || fullName || ''
+
+                // The API has no `product_name_new`; the product label lives in `product_type`
+                // (e.g. "Shirt", "Flag", "Mug").
+                const productType = item.product_type ?? orderDetail.product_type ?? ''
+
+                // price arrives as a string and may carry a thousands separator ("9,999.99"),
+                // which plain parseFloat would truncate at the comma → strip it first.
+                const rawPrice = item.price ?? orderDetail.price ?? order.total ?? '0'
+                const price = parseFloat(String(rawPrice).replace(/,/g, '')) || 0
 
                 return {
                     id: item.id ?? item.order_id ?? 0,
                     order_id: item.order_id ?? order.id ?? 0,
-                    origin_id: order.origin_id ?? item.origin_id ?? 0,
+                    origin_id: order.origin_id ?? item.order_origin_id ?? item.origin_id ?? 0,
                     task_code: item.task_code ?? item.task_code_front ?? '',
                     task_code_front: item.task_code_front ?? '',
                     task_code_back: item.task_code_back ?? '',
-                    product_name_new: item.product_name_new ?? orderDetail.product_name_new ?? '',
-                    customer_name: order.customer_name ?? '',
+                    product_name_new: item.product_name_new ?? productType ?? orderDetail.product_name_new ?? '',
+                    product_type: productType,
+                    customer_name: customerName,
                     description_task: item.description_task ?? orderDetail.description_task ?? '',
                     description_task_front: item.description_task_front ?? orderDetail.description_task_front ?? '',
                     description_task_back: item.description_task_back ?? orderDetail.description_task_back ?? '',
@@ -357,7 +395,7 @@ export class ApiService {
                     total_quantity: item.total_items_in_order ?? order.total_item ?? order.total_quantity ?? 1,
                     status: item.status ?? order.status ?? '',
                     status_code_string: item.status_code_string ?? orderDetail.status_code_string ?? '',
-                    price: parseFloat(item.price ?? orderDetail.price ?? order.total ?? '0'),
+                    price: price,
                     score_task: parseFloat(item.score_task ?? orderDetail.score_task ?? '0'),
                     score_task_front: parseFloat(item.score_task_front ?? orderDetail.score_task_front ?? '0'),
                     score_task_back: parseFloat(item.score_task_back ?? orderDetail.score_task_back ?? '0'),

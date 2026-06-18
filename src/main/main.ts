@@ -648,12 +648,16 @@ ipcMain.handle('search-images-by-code', async (_event, code: string) => {
         const size = typeof esConfig.size === 'number' && esConfig.size > 0 ? esConfig.size : 20
 
         const url = `${esConfig.baseURL.replace(/\/$/, '')}/${esConfig.index}/_search?_source_excludes=attachment.content`
+        // Use `phrase` type so the query is matched as a single phrase instead of tokenized —
+        // prevents codes containing dashes/numbers (e.g. "GQV3ZF-30.48x45.72") from matching
+        // unrelated files via dimension tokens. The renderer should pass the prefix only.
         const body = {
             size,
             query: {
                 multi_match: {
                     query: code,
-                    fields
+                    fields,
+                    type: 'phrase'
                 }
             }
         }

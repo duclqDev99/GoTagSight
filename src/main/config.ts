@@ -91,6 +91,68 @@ export interface AppConfig {
     encryptionKey: string
 }
 
+// ===========================================================================
+// Default configuration — applied on a FRESH install (no saved config yet) so
+// the app works out of the box. Any value saved from the in-app Settings always
+// takes precedence over these. To change a default for all new machines, edit
+// here. See docs/SETUP.md.
+// ===========================================================================
+export const DEFAULT_API_CONFIG: ApiConfig = {
+    baseURL: 'http://103.139.203.10:7700',          // Meilisearch (order search)
+    timeout: 10000,
+    username: '',
+    password: '',
+    apiKey: 'cbf33c1c50e471743a3212352244936d4cd4841f781506d19cc9c1a66ccb691e',
+    environment: 'custom',
+    environmentUrls: {
+        development: 'http://127.0.0.1:8001/api/v2',
+        staging: '',
+        production: 'https://production.trackingis.info',
+        custom: 'http://103.139.203.10:7700'
+    },
+    updateApiBaseURL: '',
+    updateApiKey: ''
+}
+
+export const DEFAULT_IMAGE_PATH = '/Volumes/Designer ZenE'
+
+// Elasticsearch is off by default — it stalled image loads when unreachable.
+export const DEFAULT_ELASTICSEARCH_CONFIG: ElasticsearchConfig = {
+    enabled: false,
+    baseURL: 'http://172.26.207.206:9200',
+    index: 'nas_files',
+    username: '',
+    password: '',
+    searchFields: ['name^3', 'attachment.content', 'path'],
+    size: 20,
+    timeout: 8000,
+    fallbackToFilesystem: true
+}
+
+export const DEFAULT_THUMB_SERVER_CONFIG: ThumbServerConfig = {
+    enabled: true,
+    baseURL: 'http://172.26.207.206:8081/thumbs/',
+    nasPrefix: '/Volumes/',
+    extension: '.webp'
+}
+
+// Printer defaults. The in-app tab "🏷️ BarTender" edits enabled/method/filePath/
+// excelPath/templateName/printQuantity; the Windows Excel→print fields below
+// (bartenderPath/templatePath/printMethod/autoPrint/printScriptPath) are seeded here.
+export const DEFAULT_BARTENDER_CONFIG: BarTenderConfig = {
+    enabled: false,
+    method: 'file',
+    filePath: path.join(process.cwd(), 'print_queue.json'),
+    excelPath: path.join(process.cwd(), 'bartender_export.xlsx'),
+    templateName: 'Default',
+    printQuantity: 1,
+    autoPrint: false,
+    bartenderPath: '',
+    templatePath: '',
+    printScriptPath: '',
+    printMethod: 'direct'
+}
+
 class ConfigManager {
     private configPath: string
     private encryptionKey: string
@@ -141,33 +203,11 @@ class ConfigManager {
                 database: 'production',
                 tableName: 'order_details'
             },
-            apiConfig: {
-                baseURL: process.env.VITE_API_BASE_URL || 'http://localhost:8000',
-                timeout: 10000,
-                username: '',
-                password: '',
-                environment: 'development',
-                environmentUrls: {
-                    development: process.env.VITE_API_BASE_URL || 'http://localhost:8000',
-                    staging: '',
-                    production: '',
-                    custom: ''
-                }
-            },
-            imagePath: '/Users/macvn/Desktop/test-image',
-            barTenderConfig: {
-                enabled: false,
-                method: 'file',
-                filePath: path.join(process.cwd(), 'print_queue.json'),
-                excelPath: path.join(process.cwd(), 'bartender_export.xlsx'),
-                templateName: 'Default',
-                printQuantity: 1,
-                autoPrint: false,
-                bartenderPath: '',
-                templatePath: '',
-                printScriptPath: '',
-                printMethod: 'direct'
-            },
+            apiConfig: { ...DEFAULT_API_CONFIG },
+            imagePath: DEFAULT_IMAGE_PATH,
+            barTenderConfig: { ...DEFAULT_BARTENDER_CONFIG },
+            elasticsearchConfig: { ...DEFAULT_ELASTICSEARCH_CONFIG },
+            thumbServerConfig: { ...DEFAULT_THUMB_SERVER_CONFIG },
             encryptionKey: this.encryptionKey
         }
         this.saveConfig(defaultConfig)

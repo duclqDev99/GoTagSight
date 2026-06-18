@@ -72,6 +72,7 @@ interface OrderDetail {
     task_code_front: string
     task_code_back: string
     product_name_new: string
+    product_type: string
     customer_name: string
     description_task: string
     description_task_front: string
@@ -108,6 +109,10 @@ interface OrderViewProps {
     config: AppConfig
     order?: OrderDetail
     showImageOnly?: boolean
+    // How many items of this same order have been scanned, and how many the order
+    // contains in total — used to show "scanned / total" progress in the image panel.
+    scannedInOrder?: number
+    totalInOrder?: number
 }
 
 interface GalleryItem {
@@ -119,7 +124,7 @@ interface GalleryItem {
     source: 'elasticsearch' | 'filesystem'
 }
 
-const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showImageOnly = false }) => {
+const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showImageOnly = false, scannedInOrder, totalInOrder }) => {
     const [order, setOrder] = useState<OrderDetail | null>(propOrder || null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
@@ -149,6 +154,15 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
         }
     }, [propOrder])
 
+    // Extract the prefix portion (before the first dash) — designer files are named
+    // by prefix only, so searching by full task code (e.g. "GQV3ZF-30.48x45.72") would
+    // bring back files whose names contain the dimensions ("30", "48", "45", "72").
+    const extractPrefix = (taskCode: string): string => {
+        if (!taskCode) return taskCode
+        const dashIdx = taskCode.indexOf('-')
+        return dashIdx > 0 ? taskCode.slice(0, dashIdx) : taskCode
+    }
+
     // Load gallery when order changes
     useEffect(() => {
         if (order && order.task_code_front) {
@@ -158,7 +172,7 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
             thumbCacheRef.current.clear()
             preloadStartedRef.current.clear()
             setPreloadProgress({ done: 0, total: 0 })
-            loadGallery(order.task_code_front)
+            loadGallery(extractPrefix(order.task_code_front))
         }
     }, [order, config.imagePath, config.elasticsearchConfig?.enabled, config.elasticsearchConfig?.baseURL, config.elasticsearchConfig?.index])
 
@@ -526,12 +540,81 @@ const OrderView: React.FC<OrderViewProps> = ({ config, order: propOrder, showIma
         const activeItem = gallery[activeIndex]
         return (
             <div className="image-only-view">
+                {/* Order context — which order this item belongs to + scan progress */}
+                <div className="order-context">
+                    <div className="order-context-main">
+                        <span className="oc-customer" title={order.customer_name || ''}>
+                            {order.customer_name || 'Unknown Customer'}
+                        </span>
+                        {!!order.origin_id && (
+                            <span className="oc-origin" title="Order ID">#{order.origin_id}</span>
+                        )}
+                    </div>
+                    <div className="order-context-meta">
+                        {order.product_type && (
+                            <span className="oc-type" title="Product type">{order.product_type}</span>
+                        )}
+                        {order.platform && (
+                            <span className="oc-platform" title="Platform">{order.platform}</span>
+                        )}
+                        {!!totalInOrder && totalInOrder > 0 && (
+                            <span
+                                className={`oc-progress ${(scannedInOrder || 0) >= totalInOrder ? 'complete' : ''}`}
+                                title="Items scanned in this order / total items in the order"
+                            >
+                                {scannedInOrder || 0}/{totalInOrder}
+                            </span>
+                        )}
+                    </div>
+                </div>
+
+                {/* Product specifics — only fields that actually carry a value are shown */}
+                <div className="order-summary">
+                    <span className="summary-chip" title="Quantity">
+                        <span className="summary-chip-label">Qty</span>{order.quantity || 0}
+                    </span>
+                    {order.size_style && (
+                        <span className="summary-chip" title="Size Style">
+                            <span className="summary-chip-label">Size Style</span>{order.size_style}
+                        </span>
+                    )}
+                    {order.layout_style && (
+                        <span className="summary-chip" title="Layout Style">
+                            <span className="summary-chip-label">Layout</span>{order.layout_style}
+                        </span>
+                    )}
+                    {order.color && (
+                        <span className="summary-chip" title="Color">
+                            <span className="summary-chip-label">Color</span>{order.color}
+                        </span>
+                    )}
+                    {order.material && (
+                        <span className="summary-chip" title="Material">
+                            <span className="summary-chip-label">Material</span>{order.material}
+                        </span>
+                    )}
+                    {order.pack && (
+                        <span className="summary-chip" title="Pack">
+                            <span className="summary-chip-label">Pack</span>{order.pack}
+                        </span>
+                    )}
+                    {order.condition && (
+                        <span className="summary-chip" title="Condition">
+                            <span className="summary-chip-label">Condition</span>{order.condition}
+                        </span>
+                    )}
+                </div>
+
+                {!!order.personalization && (
+                    <div className="order-personalization" title="Personalization">
+                        <span className="op-label">Personalization</span>
+                        <span className="op-value">{order.personalization}</span>
+                    </div>
+                )}
+
                 <div className="gallery-main">
                     {imagePath ? (
                         <div className="image-container">
-                            <div className="qty-badge">Qty: {order.quantity || 0}</div>
-                            <div className="size-badge">Size: {order.size_style || ''}</div>
-
                             {isLoadingImage && (
                                 <div className="image-loading-overlay">
                                     <div className="spinner"></div>

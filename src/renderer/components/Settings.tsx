@@ -56,30 +56,24 @@ interface SettingsProps {
 const Settings: React.FC<SettingsProps> = ({ config, onConfigChange }) => {
     const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
     const [isTesting, setIsTesting] = useState(false)
-    const [barTenderConfig, setBarTenderConfig] = useState(config.barTenderConfig || {
-        enabled: false,
-        bartenderPath: '',
-        templatePath: '',
-        exportFolder: '',
-        autoExport: false,
-        autoPrint: false
-    })
 
     // Sửa khởi tạo localConfig để sử dụng ApiConfig
     const [localConfig, setLocalConfig] = useState<AppConfig>(() => {
         const safeConfig = config || {}
         return {
             apiConfig: {
-                baseURL: safeConfig.apiConfig?.baseURL || 'http://127.0.0.1:8001/api/v2',
+                // Fallback defaults so the form is pre-filled on a fresh machine.
+                baseURL: safeConfig.apiConfig?.baseURL || 'http://103.139.203.10:7700',
                 timeout: safeConfig.apiConfig?.timeout || 10000,
                 username: safeConfig.apiConfig?.username || '',
                 password: safeConfig.apiConfig?.password || '',
-                apiKey: safeConfig.apiConfig?.apiKey || '',
-                environment: safeConfig.apiConfig?.environment || 'development',
+                apiKey: safeConfig.apiConfig?.apiKey || 'cbf33c1c50e471743a3212352244936d4cd4841f781506d19cc9c1a66ccb691e',
+                environment: safeConfig.apiConfig?.environment || 'custom',
                 environmentUrls: safeConfig.apiConfig?.environmentUrls || {
                     development: 'http://127.0.0.1:8001/api/v2',
-                    staging: 'http://staging-api.example.com/api/v2',
-                    production: 'http://api.example.com/api/v2'
+                    staging: '',
+                    production: 'https://production.trackingis.info',
+                    custom: 'http://103.139.203.10:7700'
                 },
                 updateApiBaseURL: safeConfig.apiConfig?.updateApiBaseURL || '',
                 updateApiKey: safeConfig.apiConfig?.updateApiKey || ''
@@ -115,32 +109,16 @@ const Settings: React.FC<SettingsProps> = ({ config, onConfigChange }) => {
                 await window.electronAPI.setConfig({
                     apiConfig: localConfig.apiConfig,
                     imagePath: localConfig.imagePath,
-                    barTenderConfig: localConfig.barTenderConfig,
                     elasticsearchConfig: localConfig.elasticsearchConfig
                 })
                 onConfigChange({
-                    apiConfig: localConfig.apiConfig,
-                    barTenderConfig: localConfig.barTenderConfig
+                    apiConfig: localConfig.apiConfig
                 })
                 setTestResult({ success: true, message: 'Configuration saved successfully!' })
             }
         } catch (error) {
             setTestResult({ success: false, message: `Failed to save config: ${error}` })
         }
-    }
-
-    const handleApiChange = (field: keyof ApiConfig, value: string | number) => {
-        const newApiConfig = {
-            ...config.apiConfig,
-            [field]: value
-        }
-        onConfigChange({ apiConfig: newApiConfig })
-    }
-
-    const handleBarTenderChange = (field: keyof typeof barTenderConfig, value: any) => {
-        const newConfig = { ...barTenderConfig, [field]: value }
-        setBarTenderConfig(newConfig)
-        onConfigChange({ barTenderConfig: newConfig })
     }
 
     const testApiConnection = async () => {
@@ -152,8 +130,7 @@ const Settings: React.FC<SettingsProps> = ({ config, onConfigChange }) => {
                 // Lưu config hiện tại trước khi test
                 await window.electronAPI.setConfig({
                     apiConfig: localConfig.apiConfig,
-                    imagePath: localConfig.imagePath,
-                    barTenderConfig: localConfig.barTenderConfig
+                    imagePath: localConfig.imagePath
                 })
 
                 const result = await window.electronAPI.testApiConnection()
@@ -327,94 +304,6 @@ const Settings: React.FC<SettingsProps> = ({ config, onConfigChange }) => {
                         {testResult.message}
                     </div>
                 )}
-            </div>
-
-            {/* BarTender Configuration */}
-            <div className="settings-section">
-                <h3>BarTender Configuration</h3>
-                <div className="form-group">
-                    <label><input type="checkbox" checked={localConfig.barTenderConfig.enabled} onChange={e => handleInputChange('barTenderConfig', 'enabled', e.target.checked ? 1 : 0)} /> Bật BarTender</label>
-                </div>
-                <div className="form-group">
-                    <label>BarTender Path:</label>
-                    <input type="text" value={localConfig.barTenderConfig.bartenderPath} onChange={e => handleInputChange('barTenderConfig', 'bartenderPath', e.target.value)} placeholder="C:\\Program Files (x86)\\Seagull\\BarTender Suite\\bartend.exe" />
-                </div>
-                <div className="form-group">
-                    <label>Template Path (.btw):</label>
-                    <input type="text" value={localConfig.barTenderConfig.templatePath} onChange={e => handleInputChange('barTenderConfig', 'templatePath', e.target.value)} placeholder="C:\\...\\Document1.btw" />
-                </div>
-                <div className="form-group">
-                    <label>Export Excel Folder:</label>
-                    <input type="text" value={localConfig.barTenderConfig.exportFolder} onChange={e => handleInputChange('barTenderConfig', 'exportFolder', e.target.value)} placeholder="C:\\...\\IN CODE" />
-                </div>
-                <div className="form-group">
-                    <label><input type="checkbox" checked={localConfig.barTenderConfig.autoExport} onChange={e => handleInputChange('barTenderConfig', 'autoExport', e.target.checked ? 1 : 0)} /> Auto Export Excel after scan</label>
-                </div>
-                <div className="form-group">
-                    <label><input type="checkbox" checked={localConfig.barTenderConfig.autoPrint} onChange={e => handleInputChange('barTenderConfig', 'autoPrint', e.target.checked ? 1 : 0)} /> Auto Print after export</label>
-                </div>
-                <div className="form-group">
-                    <label>Print Script Path (PowerShell):</label>
-                    <input type="text" value={localConfig.barTenderConfig.printScriptPath || ''} onChange={e => handleInputChange('barTenderConfig', 'printScriptPath', e.target.value)} placeholder="C:\\path\\to\\print-script.ps1" />
-                </div>
-                <div className="form-group">
-                    <label>Print Method:</label>
-                    <select
-                        value={localConfig.barTenderConfig.printMethod || 'direct'}
-                        onChange={e => handleInputChange('barTenderConfig', 'printMethod', e.target.value as 'direct' | 'script')}
-                        className="print-method-select"
-                    >
-                        <option value="direct">Direct Print (Gọi BarTender trực tiếp)</option>
-                        <option value="script">Print via Script (Gọi script PowerShell)</option>
-                    </select>
-                </div>
-            </div>
-
-            {/* Help Section */}
-            <div className="settings-section">
-                <h3>Help</h3>
-                <div className="help-content">
-                    <h4>API Setup:</h4>
-                    <ul>
-                        <li>Choose your environment from the dropdown</li>
-                        <li><strong>Development:</strong> For local development (e.g., http://127.0.0.1:8000/api)</li>
-                        <li><strong>Staging:</strong> For testing environment</li>
-                        <li><strong>Production:</strong> For live environment (e.g., https://production.trackingis.info/api)</li>
-                        <li><strong>Custom URL:</strong> For custom API endpoints</li>
-                        <li>Set appropriate timeout (default: 10000ms)</li>
-                        <li><strong>API Key (Bearer Token):</strong> Required for authentication</li>
-                        <li>Username/Password: Alternative authentication method</li>
-                    </ul>
-
-                    <h4>Authentication:</h4>
-                    <ul>
-                        <li><strong>Bearer Token:</strong> Most common - enter your API key</li>
-                        <li><strong>Basic Auth:</strong> Use username/password if required</li>
-                        <li><strong>Priority:</strong> Bearer token takes precedence over basic auth</li>
-                    </ul>
-
-                    <h4>Environment URLs:</h4>
-                    <ul>
-                        <li><strong>Development:</strong> Enter your local API URL</li>
-                        <li><strong>Staging:</strong> Enter your staging API URL</li>
-                        <li><strong>Production:</strong> Enter your production API URL</li>
-                        <li><strong>Custom:</strong> Enter your own API URL</li>
-                    </ul>
-
-                    <h4>Image & Elasticsearch:</h4>
-                    <ul>
-                        <li>Cấu hình ảnh và Elasticsearch được đặt trong cửa sổ "Setting Hình Ảnh".</li>
-                        <li>Supported formats: PNG, JPG, JPEG, GIF, BMP, WEBP, AI, PDF</li>
-                    </ul>
-
-                    <h4>BarTender Setup:</h4>
-                    <ul>
-                        <li>Ensure BarTender is installed and accessible</li>
-                        <li>Use correct BarTender executable path</li>
-                        <li>Template file (.btw) should exist and be accessible</li>
-                        <li>Export folder should have write permissions</li>
-                    </ul>
-                </div>
             </div>
 
             <div className="form-group" style={{ marginTop: 24 }}>
